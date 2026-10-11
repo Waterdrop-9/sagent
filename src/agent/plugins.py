@@ -42,17 +42,42 @@ class Cwe78Plugin:
     def __init__(self, prompt_root: Path | None = None) -> None:
         root = prompt_root or Path(__file__).resolve().parents[2] / "prompts"
         self.prompt_root = root / "cwe-78"
-        self.system_prompt = self._read_prompt("system.md")
+        common_root = root / "common"
+        common_prompts = tuple(
+            self._read_file(common_root / name)
+            for name in (
+                "evidence-rules.md",
+                "attack-surface.md",
+                "source-sink-model.md",
+                "coverage-rules.md",
+                "report-schema.md",
+            )
+        )
+        phase_prompts = tuple(
+            self._read_file(self.prompt_root / name)
+            for name in (
+                "system.md",
+                "attack-surface.md",
+                "candidate-models.md",
+                "propagation-review.md",
+                "false-positive-review.md",
+                "poc.md",
+            )
+        )
+        self.system_prompt = "\n\n".join(common_prompts + phase_prompts)
         self.task_prompt = self._read_prompt("task.md")
 
     def _read_prompt(self, name: str) -> str:
-        path = self.prompt_root / name
+        return self._read_file(self.prompt_root / name)
+
+    @staticmethod
+    def _read_file(path: Path) -> str:
         try:
             content = path.read_text(encoding="utf-8").strip()
         except OSError as exc:
-            raise FileNotFoundError(f"CWE-78 prompt 不存在或不可读: {path}") from exc
+            raise FileNotFoundError(f"prompt 不存在或不可读: {path}") from exc
         if not content:
-            raise ValueError(f"CWE-78 prompt 为空: {path}")
+            raise ValueError(f"prompt 为空: {path}")
         return content
 
     tools = (

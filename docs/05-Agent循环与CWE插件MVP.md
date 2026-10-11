@@ -25,7 +25,7 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 代码位于 `src/agent/`：
 
 - `runtime.py`：统一 `AgentRuntime` interface，以及 Claude Code 和 OpenCode CLI adapter。
-- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/cwe-78/*.md` 读取 system prompt 和任务模板，并生成 GhidraMCP 配置。
+- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/common/`、`prompts/cwe-78/` 读取阶段化规则和任务模板，并生成 GhidraMCP 配置。
 - `cli.py`：选择底座、加载插件、生成 MCP 配置并启动 Agent。
 
 调用示例：
