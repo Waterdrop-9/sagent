@@ -23,6 +23,7 @@
 - Agent 原型：`src/agent/` 提供 Claude Code/OpenCode adapter、CWE 插件接口、GhidraMCP 配置和 CWE-78 dry-run/真实调用入口；CWE prompt 位于 `prompts/cwe-78/`。
 - Ghidra 接入：使用外部 GhidraMCP 提供反编译、函数、导入、导出、字符串、调用和交叉引用 MCP 工具；headless 启动链路已在本机验证。
 - 配置与工作流：根目录 `config.toml.example` 提供 Agent 配置模板，真实 `config.toml` 被忽略；`部署与使用手册.md` 和 `docs/06-工作流.md` 已建立；静态污点工具比较记录在 `docs/07-静态污点工具调研.md`。
+- Prompt 与覆盖账本：`docs/08-Prompt与覆盖账本设计.md` 已定义攻击面、source/sink 自定义模型、sink 驱动查询、覆盖结束条件和不同 CWE 的阶段化 prompt 组织。
 
 ## 实现与 docs/03 的差距
 
