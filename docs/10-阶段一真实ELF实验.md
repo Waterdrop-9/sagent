@@ -105,3 +105,16 @@ query_sink_paths(system, 0) → path_found
 3. 常量输入可以作为误报排除证据；
 4. `path_found` 仍不等于完整污点证明，最终状态必须保留限制；
 5. 未加载的 `libauth.so`、`liblog.so` 和未解析间接调用进入 unresolved。
+
+## 报告结构门禁联调
+
+在接入 `AgentReport` 校验后，完整真实请求仍能通过 CLI：
+
+- `findings`：3 条；
+- `unresolved`：3 条；
+- `coverage`：包含程序、攻击面、sink 查询、候选模型和预算信息；
+- `remoteExec`：`candidate`；
+- 固定常量 `system` 路径：`rejected`；
+- `receiveFile` 的非 CWE-78 路径：`rejected`。
+
+CLI 会拒绝缺少 `findings`、`unresolved` 或 `coverage` 的输出，也会拒绝没有 `evidenceIDs` 或状态值非法的 finding。
