@@ -21,6 +21,7 @@
   - `build_analysis_groups()`：单 ELF 模式（不扫父目录，仅显式依赖根）和目录模式（可执行 ELF 各自建组，`ET_DYN` 带 interpreter 视为 PIE）。
 - 实验：`tests/20261010_01_elf依赖检索_r01/` 三个用例全部通过（目录模式分组、单 ELF 不扫父目录、显式依赖根）。
 - Agent 原型：`src/agent/` 提供 Claude Code/OpenCode adapter、CWE 插件接口、MCP stdio 工具桥和 CWE-78 dry-run/真实调用入口；CWE prompt 位于 `prompts/cwe-78/`；路径查询 fixture 位于 `data/02_agent_mvp_cwe78_paths.json`。
+- Ghidra 接入：使用外部 GhidraMCP 提供反编译、函数、导入、导出、字符串、调用和交叉引用 MCP 工具；headless 启动链路已在本机验证。
 
 ## 实现与 docs/03 的差距
 
@@ -34,7 +35,7 @@
 
 ## 下一步计划
 
-1. 用真实 Ghidra 适配器替换 `data/02_agent_mvp_cwe78_paths.json` fixture。
+1. 用 GhidraMCP 工具结果替换 `data/02_agent_mvp_cwe78_paths.json` fixture。
 2. 验证 CWE-78 的真实 sink 发现、路径查询和证据报告。
 3. 按同一插件契约增加 CWE-134，再评估 CWE-190、CWE-606 所需的数值状态。
 4. 按 `docs/03` 验证场景补充依赖检索实验：同名库冲突、断链和同内容库共享身份。

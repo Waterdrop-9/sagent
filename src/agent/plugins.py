@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,9 @@ class CwePlugin(Protocol):
 
     def build_user_prompt(self, goal: str, target: Path) -> str: ...
 
-    def mcp_config(self, fixture: Path, source_root: Path) -> dict[str, object]: ...
+    def mcp_config(
+        self, target: Path, source_root: Path, **kwargs: object
+    ) -> dict[str, object]: ...
 
 
 class Cwe78Plugin:
@@ -68,32 +71,71 @@ class Cwe78Plugin:
     def build_user_prompt(self, goal: str, target: Path) -> str:
         return self.task_prompt.format(target=target, goal=goal)
 
-    def mcp_config(self, fixture: Path, source_root: Path) -> dict[str, object]:
-        command = [
-            sys.executable,
-            "-m",
-            "agent.mcp_server",
-            "--fixture",
-            str(fixture.resolve()),
+    def mcp_config(
+        self,
+        target: Path,
+        source_root: Path,
+        *,
+        fixture: Path | None = None,
+        ghidra_mode: str = "headless",
+        ghidra_server: str = "http://127.0.0.1:8080/",
+        ghidra_install_dir: Path | None = None,
+        ghidra_extension_jar: Path | None = None,
+    ) -> dict[str, object]:
+        """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。"""
+
+        if ghidra_mode not in {"headless", "gui"}:
+            raise ValueError(f"不支持的 Ghidra 模式: {ghidra_mode}")
+        uvx = shutil.which("uvx") or "uvx"
+        ghidra_args = [
+            "--from",
+            "ghidra-mcp[headless] @ git+https://github.com/LaurieWired/GhidraMCP",
+            "ghidra-mcp",
         ]
-        server = {
-            "type": "local",
-            "command": command,
-            "environment": {"PYTHONPATH": str(source_root.resolve())},
+        ghidra_env: dict[str, str] = {}
+        if ghidra_mode == "headless":
+            ghidra_args.extend(("--headless", "--binary", str(target.resolve())))
+            if ghidra_install_dir:
+                ghidra_args.extend(("--ghidra-install-dir", str(ghidra_install_dir.resolve())))
+                ghidra_env["GHIDRA_INSTALL_DIR"] = str(ghidra_install_dir.resolve())
+            if ghidra_extension_jar:
+                ghidra_args.extend(("--extension-jar", str(ghidra_extension_jar.resolve())))
+        else:
+            ghidra_args.extend(("--ghidra-server", ghidra_server))
+
+        claude_servers: dict[str, object] = {
+            "ghidra": {"command": uvx, "args": ghidra_args, "env": ghidra_env}
         }
+        opencode_servers: dict[str, object] = {
+            "ghidra": {
+                "type": "local",
+                "command": [uvx, *ghidra_args],
+                "environment": ghidra_env,
+            }
+        }
+        if fixture:
+            evidence_command = [
+                sys.executable,
+                "-m",
+                "agent.mcp_server",
+                "--fixture",
+                str(fixture.resolve()),
+            ]
+            claude_servers["evidence"] = {
+                "command": evidence_command[0],
+                "args": evidence_command[1:],
+                "env": {"PYTHONPATH": str(source_root.resolve())},
+            }
+            opencode_servers["evidence"] = {
+                "type": "local",
+                "command": evidence_command,
+                "environment": {"PYTHONPATH": str(source_root.resolve())},
+            }
         return {
-            "claude": {
-                "mcpServers": {
-                    "cwe78": {
-                        "command": command[0],
-                        "args": command[1:],
-                        "env": server["environment"],
-                    }
-                }
-            },
+            "claude": {"mcpServers": claude_servers},
             "opencode": {
                 "$schema": "https://opencode.ai/config.json",
-                "mcp": {"servers": {"cwe78": server}},
+                "mcp": {"servers": opencode_servers},
             },
         }
 
@@ -101,11 +143,12 @@ class Cwe78Plugin:
 def write_runtime_config(
     plugin: CwePlugin,
     runtime: str,
-    fixture: Path,
+    target: Path,
     source_root: Path,
     output: Path,
+    **kwargs: object,
 ) -> Path:
-    configs = plugin.mcp_config(fixture, source_root)
+    configs = plugin.mcp_config(target, source_root, **kwargs)
     if runtime not in configs:
         raise ValueError(f"插件没有为 {runtime} 提供 MCP 配置")
     output.write_text(

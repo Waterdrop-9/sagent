@@ -16,7 +16,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--executable", help="Agent CLI 路径；默认使用 PATH 中的命令")
     parser.add_argument("--target", type=Path, required=True, help="待分析 ELF 或固件组件")
     parser.add_argument("--goal", required=True, help="人工分析目标")
-    parser.add_argument("--fixture", type=Path, required=True, help="静态工具路径 fixture")
+    parser.add_argument("--fixture", type=Path, help="可选的静态路径证据 fixture")
+    parser.add_argument("--ghidra-mode", choices=("headless", "gui"), default="headless")
+    parser.add_argument("--ghidra-server", default="http://127.0.0.1:8080/")
+    parser.add_argument("--ghidra-install-dir", type=Path)
+    parser.add_argument("--ghidra-extension-jar", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--max-turns", type=int)
     parser.add_argument("--timeout", type=float, default=3600)
@@ -33,9 +37,14 @@ def main(argv: list[str] | None = None) -> int:
         config_path = write_runtime_config(
             plugin,
             args.runtime,
-            args.fixture,
+            args.target,
             source_root,
             Path(directory) / f"{args.runtime}-mcp.json",
+            fixture=args.fixture,
+            ghidra_mode=args.ghidra_mode,
+            ghidra_server=args.ghidra_server,
+            ghidra_install_dir=args.ghidra_install_dir,
+            ghidra_extension_jar=args.ghidra_extension_jar,
         )
         request = AgentRequest(
             system_prompt=plugin.system_prompt,

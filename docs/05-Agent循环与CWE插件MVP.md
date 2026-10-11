@@ -25,7 +25,7 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 代码位于 `src/agent/`：
 
 - `runtime.py`：统一 `AgentRuntime` interface，以及 Claude Code 和 OpenCode CLI adapter。
-- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/cwe-78/*.md` 读取 system prompt 和任务模板，并提供 MCP 配置。
+- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/cwe-78/*.md` 读取 system prompt 和任务模板，并生成 GhidraMCP 配置。
 - `mcp_server.py`：最小 MCP stdio 工具桥，目前提供 `query_sink_paths`。
 - `cli.py`：选择底座、加载插件、生成 MCP 配置并启动 Agent。
 
@@ -33,10 +33,11 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 
 ```bash
 PYTHONPATH=src python3 -m agent.cli \
-  --runtime claude \
+  --runtime opencode \
   --target data/01_simple_demo/server \
   --goal "检查是否存在外部输入到命令执行的路径" \
-  --fixture data/02_agent_mvp_cwe78_paths.json \
+  --ghidra-install-dir "$(brew --prefix ghidra)/libexec" \
+  --ghidra-extension-jar /tmp/GhidraMCP.jar \
   --dry-run
 ```
 
@@ -73,8 +74,9 @@ CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开�
 
 ## 边界
 
-- 当前 fixture 模拟静态分析结果，真实 Ghidra 适配器尚未实现。
-- MCP server 当前只有 CWE-78 的路径查询工具。
+- 反编译、函数和调用关系由外部 GhidraMCP 提供；当前 fixture 只用于验证 Sagent 的 `query_sink_paths` 证据工具。
+- GhidraMCP 不等于完整污点分析。参数级污点传播、路径约束和误报复核仍需由后续工具补足。
 - Claude/OpenCode 的 CLI 负责真正的规划和循环；Sagent 不复制它们的 Agent loop。
+- 后续开发默认使用 OpenCode，Claude Code 用于辅助验证；两个底座都通过同一个 `AgentRuntime` 接口接入。
 - 当前只做候选发现，工具证据不足时必须由 Agent 输出 `inconclusive` 或 `unresolved`。
 - Claude 和 OpenCode 的配置格式由各自 adapter 负责，避免业务层绑定具体底座。
