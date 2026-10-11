@@ -1,0 +1,25 @@
+{
+  "paths": [
+    {
+      "sink_function": "system",
+      "sink_argument": 0,
+      "source": {"function": "http_get_param", "argument": 1, "controllable": true},
+      "steps": [
+        {
+          "caller": "handle_request",
+          "caller_argument": 1,
+          "callee": "build_command",
+          "callee_argument": 0,
+          "evidence": "handle_request.arg1 -> build_command.arg0"
+        },
+        {
+          "caller": "build_command",
+          "caller_argument": 0,
+          "callee": "system",
+          "callee_argument": 0,
+          "evidence": "build_command.return -> system.arg0"
+        }
+      ]
+    }
+  ]
+}

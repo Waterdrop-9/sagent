@@ -20,6 +20,7 @@
   - 依赖解析：架构/位数/端序兼容检查；同内容候选去重；多候选冲突不擅自选择；常见库白名单（`COMMON_LIBRARY_NAMES`）转通用库知识引用。
   - `build_analysis_groups()`：单 ELF 模式（不扫父目录，仅显式依赖根）和目录模式（可执行 ELF 各自建组，`ET_DYN` 带 interpreter 视为 PIE）。
 - 实验：`tests/20261010_01_elf依赖检索_r01/` 三个用例全部通过（目录模式分组、单 ELF 不扫父目录、显式依赖根）。
+- Agent 原型：`src/agent/` 提供 Claude Code/OpenCode adapter、CWE 插件接口、MCP stdio 工具桥和 CWE-78 dry-run/真实调用入口；路径查询 fixture 位于 `data/02_agent_mvp_cwe78_paths.json`。
 
 ## 未提交（工作区）
 
@@ -48,4 +49,4 @@
 
 - 固件解包（binwalk 适配器）、压缩包输入。
 - 缓冲区溢出/UAF/Double Free 等内存生命周期问题。
-- Ghidra 接入、CWE 插件、污点分析、报告生成。
+- Ghidra 接入、真实静态路径查询、更多 CWE 插件、污点状态扩展和报告生成。

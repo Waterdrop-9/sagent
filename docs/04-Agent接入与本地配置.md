@@ -1,16 +1,18 @@
 # Agent 接入与本地配置
 
-状态：配置设计草案，暂不实现连接。
+状态：配置设计与 Agent adapter 原型。
 
 ## 已确认方向
 
-使用自有 Agent 适配层，首期接入 Claude 相关底座，并支持 DeepSeek 模型。Agent 底座与模型提供方分开配置。
+使用自有 Agent 适配层，首期接入 Claude Code 和 OpenCode，并支持通过各自底座配置选择模型。Agent 底座与模型提供方分开配置。
 
-“Claude 底座”的具体接入方式仍需确定。配置中选择 DeepSeek 不代表任意 Claude SDK 或运行时都能直接调用它，协议适配需要单独验证。
+当前原型通过 CLI adapter 调用两个生产级 Agent 底座：Claude Code 使用非交互 print 模式，OpenCode 使用 `run` 模式。具体命令参数和 MCP 配置只存在于 adapter 内部。
+
+Agent 的 prompt 和工具由 CWE 插件提供。工具通过 MCP stdio server 暴露给底座，业务层不直接依赖某个 Agent 的内部工具格式。整体设计见 [Agent 底座、工具和 CWE 插件 MVP](./05-Agent循环与CWE插件MVP.md)。
 
 ## 配置草案
 
-用户在本地 `config.toml` 中设置底座、提供方、模型、地址和 API Key。下面的值用于说明字段，模型和地址尚未固定：
+长期配置仍可使用本地 `config.toml` 设置底座、提供方、模型、地址和 API Key。当前 MVP 使用 CLI 参数选择底座，MCP 配置由插件在运行期间生成：
 
 ```toml
 [agent]
@@ -29,9 +31,10 @@ api_key_env = ""
 
 读取配置时校验必需字段。连接错误、鉴权失败和模型不可用分别报告，不能变成空分析结果。
 
-## 下一次需要确认
+## 当前原型限制
 
-- Claude 底座的具体接入方式和调用协议。
-- DeepSeek 的目标模型、服务地址和工具调用兼容性。
+- 本机必须自行安装 Claude Code 或 OpenCode 并完成认证。
+- 当前只提供 CWE-78 插件和 `query_sink_paths` fixture 工具。
+- Ghidra 静态分析适配器和实际模型服务配置仍待接入。
 
-依赖检索不需要调用模型，可以先独立开发和验证。
+依赖检索仍然独立于 Agent 底座；Agent 只消费静态分析工具返回的结构化证据。
