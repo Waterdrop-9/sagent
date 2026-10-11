@@ -25,7 +25,7 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 代码位于 `src/agent/`：
 
 - `runtime.py`：统一 `AgentRuntime` interface，以及 Claude Code 和 OpenCode CLI adapter。
-- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件同时提供 system prompt、用户任务 prompt 和 MCP 配置。
+- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/cwe-78/*.md` 读取 system prompt 和任务模板，并提供 MCP 配置。
 - `mcp_server.py`：最小 MCP stdio 工具桥，目前提供 `query_sink_paths`。
 - `cli.py`：选择底座、加载插件、生成 MCP 配置并启动 Agent。
 
@@ -40,6 +40,17 @@ PYTHONPATH=src python3 -m agent.cli \
   --dry-run
 ```
 
+Prompt 文件位于：
+
+```text
+prompts/
+└── cwe-78/
+    ├── system.md
+    └── task.md
+```
+
+运行时会校验两个文件存在且非空。`task.md` 使用 `{target}` 和 `{goal}` 两个占位符；新增 CWE 时新增对应目录和 Markdown 文件，不需要把知识写进 Python。
+
 安装 Claude Code 或 OpenCode 并完成其自身认证后，去掉 `--dry-run` 即由真实 Agent 执行；本机未安装对应 CLI 时，程序会明确报错，不会伪造分析结果。
 
 ## TaintSage 思想的落点
@@ -53,7 +64,7 @@ CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开�
 每个 CWE 插件提供：
 
 - `cwe_id` 和名称；
-- system prompt；
+- prompt 目录中的 system prompt 和任务模板；
 - 工具 schema 和 MCP server 配置；
 - 用户任务 prompt；
 - 结构化报告要求。

@@ -8,7 +8,7 @@
 
 当前原型通过 CLI adapter 调用两个生产级 Agent 底座：Claude Code 使用非交互 print 模式，OpenCode 使用 `run` 模式。具体命令参数和 MCP 配置只存在于 adapter 内部。
 
-Agent 的 prompt 和工具由 CWE 插件提供。工具通过 MCP stdio server 暴露给底座，业务层不直接依赖某个 Agent 的内部工具格式。整体设计见 [Agent 底座、工具和 CWE 插件 MVP](./05-Agent循环与CWE插件MVP.md)。
+Agent 的 prompt 和工具由 CWE 插件提供。Prompt 以 `prompts/<cwe>/` 下的 Markdown 文件保存，工具通过 MCP stdio server 暴露给底座，业务层不直接依赖某个 Agent 的内部工具格式。整体设计见 [Agent 底座、工具和 CWE 插件 MVP](./05-Agent循环与CWE插件MVP.md)。
 
 ## 配置草案
 
@@ -35,6 +35,7 @@ api_key_env = ""
 
 - 本机必须自行安装 Claude Code 或 OpenCode 并完成认证。
 - 当前只提供 CWE-78 插件和 `query_sink_paths` fixture 工具。
+- CWE-78 prompt 位于 `prompts/cwe-78/system.md` 和 `prompts/cwe-78/task.md`，修改 prompt 不需要修改 Python。
 - Ghidra 静态分析适配器和实际模型服务配置仍待接入。
 
 依赖检索仍然独立于 Agent 底座；Agent 只消费静态分析工具返回的结构化证据。

@@ -11,7 +11,7 @@
 ## 已完成
 
 - 设计与规范：`GUIDELINE.md`、`设计总纲.md`、`术语表.md` 已建立（讨论稿 v0）。
-- 模块文档：`docs/01` 领域模型、`docs/02` 单 ELF 联合分析组、`docs/03` 依赖检索与分析组构建、`docs/04` Agent 接入配置草案。
+- 模块文档：`docs/01` 领域模型、`docs/02` 单 ELF 联合分析组、`docs/03` 依赖检索与分析组构建、`docs/04` Agent 接入与本地配置、`docs/05` Agent 底座和 CWE 插件 MVP。
 - 实验规范：`EXPERIMENT.md`，实验目录格式 `tests/YYYYMMDD_序号_目的_rXX`，数据来自 `data/`。
 - 实验数据：`data/01_simple_demo/`（client、server 两个可执行程序，libs/libauth.so、libs/liblog.so）。
 - 实现：`src/elf.py`（约 550 行），包含：
@@ -20,13 +20,7 @@
   - 依赖解析：架构/位数/端序兼容检查；同内容候选去重；多候选冲突不擅自选择；常见库白名单（`COMMON_LIBRARY_NAMES`）转通用库知识引用。
   - `build_analysis_groups()`：单 ELF 模式（不扫父目录，仅显式依赖根）和目录模式（可执行 ELF 各自建组，`ET_DYN` 带 interpreter 视为 PIE）。
 - 实验：`tests/20261010_01_elf依赖检索_r01/` 三个用例全部通过（目录模式分组、单 ELF 不扫父目录、显式依赖根）。
-- Agent 原型：`src/agent/` 提供 Claude Code/OpenCode adapter、CWE 插件接口、MCP stdio 工具桥和 CWE-78 dry-run/真实调用入口；路径查询 fixture 位于 `data/02_agent_mvp_cwe78_paths.json`。
-
-## 未提交（工作区）
-
-- 5 个文档修改：术语从“未解析依赖”改为“待处理依赖 / 通用库知识引用”，移除分析组 `complete/partial/invalid` 状态，改为每条依赖边直接记录处理结果（`docs/01`、`docs/02`、`docs/03`、`术语表.md`、`设计总纲.md`）。
-- 未跟踪：`src/elf.py`、`EXPERIMENT.md`。
-- 术语改版与 `src/elf.py` 实现已互相一致，可一并提交。
+- Agent 原型：`src/agent/` 提供 Claude Code/OpenCode adapter、CWE 插件接口、MCP stdio 工具桥和 CWE-78 dry-run/真实调用入口；CWE prompt 位于 `prompts/cwe-78/`；路径查询 fixture 位于 `data/02_agent_mvp_cwe78_paths.json`。
 
 ## 实现与 docs/03 的差距
 
@@ -40,10 +34,10 @@
 
 ## 下一步计划
 
-1. 提交当前工作区（术语改版文档 + `src/elf.py` + `EXPERIMENT.md`）。
-2. 决定依赖检索模块是否补齐 RPATH/RUNPATH/$ORIGIN 候选收窄，或明确降为首版限制并写入文档。
-3. 按 `docs/03` 验证场景补充实验数据和实验轮次：同名库不同版本/架构冲突、断链/越界链接、同内容库多路径共享组件身份。
-4. `docs/04` 待用户确认：Claude 底座具体接入方式、DeepSeek 目标模型与服务地址。依赖检索不依赖模型，可先行。
+1. 用真实 Ghidra 适配器替换 `data/02_agent_mvp_cwe78_paths.json` fixture。
+2. 验证 CWE-78 的真实 sink 发现、路径查询和证据报告。
+3. 按同一插件契约增加 CWE-134，再评估 CWE-190、CWE-606 所需的数值状态。
+4. 按 `docs/03` 验证场景补充依赖检索实验：同名库冲突、断链和同内容库共享身份。
 
 ## 暂缓项
 

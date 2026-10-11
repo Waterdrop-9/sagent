@@ -1,1 +1,9 @@
 /tests
+ICSE_2027_taintsage.pdf
+binrex.pdf
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
