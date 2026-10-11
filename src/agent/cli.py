@@ -6,6 +6,7 @@ import argparse
 import tempfile
 from pathlib import Path
 
+from .analysis_context import AnalysisContextError, build_contexts, render_contexts
 from .config import ConfigError, agent_environment, load_config, load_ghidra_config
 from .plugins import Cwe78Plugin, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
@@ -15,6 +16,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sagent Agent 原型")
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
     parser.add_argument("--target", type=Path, required=True, help="待分析 ELF 或固件组件")
+    parser.add_argument(
+        "--dependency-root",
+        action="append",
+        type=Path,
+        default=[],
+        help="显式依赖目录，可重复；单 ELF 不自动扫描父目录",
+    )
     parser.add_argument("--goal", required=True, help="人工分析目标")
     parser.add_argument("--dry-run", action="store_true", help="只生成 prompt、MCP 配置和命令")
     args = parser.parse_args(argv)
@@ -25,6 +33,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         parser.error(str(exc))
     source_root = Path(__file__).resolve().parents[1]
+    try:
+        analysis_contexts = build_contexts(args.target, args.dependency_root)
+    except AnalysisContextError as exc:
+        parser.error(str(exc))
+    analysis_context = render_contexts(analysis_contexts)
     try:
         ghidra = load_ghidra_config()
     except ConfigError as exc:
@@ -46,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         request = AgentRequest(
             system_prompt=plugin.system_prompt,
-            user_prompt=plugin.build_user_prompt(args.goal, args.target),
+            user_prompt=plugin.build_user_prompt(args.goal, args.target, analysis_context),
             mcp_config=config_path,
             cwd=Path.cwd(),
             model=config.agent.model,

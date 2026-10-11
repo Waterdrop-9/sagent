@@ -24,7 +24,9 @@ class CwePlugin(Protocol):
     system_prompt: str
     tools: tuple[ToolSpec, ...]
 
-    def build_user_prompt(self, goal: str, target: Path) -> str: ...
+    def build_user_prompt(
+        self, goal: str, target: Path, analysis_context: str = ""
+    ) -> str: ...
 
     def mcp_config(
         self, target: Path, source_root: Path, **kwargs: object
@@ -69,8 +71,13 @@ class Cwe78Plugin:
         ),
     )
 
-    def build_user_prompt(self, goal: str, target: Path) -> str:
-        return self.task_prompt.format(target=target, goal=goal)
+    def build_user_prompt(
+        self, goal: str, target: Path, analysis_context: str = ""
+    ) -> str:
+        prompt = self.task_prompt.format(target=target, goal=goal)
+        if analysis_context:
+            prompt += "\n\n## 分析组上下文\n\n```json\n" + analysis_context + "\n```"
+        return prompt
 
     def mcp_config(
         self,

@@ -34,6 +34,7 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 PYTHONPATH=src python3 -m agent.cli \
   --config config.toml \
   --target data/01_simple_demo/server \
+  --dependency-root data/01_simple_demo \
   --goal "检查是否存在外部输入到命令执行的路径" \
   --dry-run
 ```
