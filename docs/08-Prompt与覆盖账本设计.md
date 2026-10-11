@@ -222,7 +222,7 @@ PoC prompt 只在证据阶段完成后运行。它引用发现项和证据，不
 
 分析产物可能包含数万函数、调用关系、反编译文本和大量路径。不能把完整反编译结果、所有 P-code 和全部证据放进一个 JSON，也不能把原始工具输出重复复制到每个 finding 中。
 
-第一版采用“索引小文件 + 分片产物 + 原始结果引用”的布局：
+第一版采用“紧凑索引 + 少量保留证据 + 原始结果按需缓存”的布局。默认不为每个函数、每次查询和每条路径创建一个独立文件：
 
 ```text
 analysis/<analysisGroupID>/
@@ -231,12 +231,9 @@ analysis/<analysisGroupID>/
 │   ├── coverage-ledger.json
 │   ├── function-index.json
 │   └── findings.json
-├── models/
-│   └── functions/<functionID>.json
-├── queries/
-│   └── <queryID>.json
-├── evidence/
-│   └── <evidenceID>.json
+├── candidates.jsonl
+├── queries.jsonl
+├── evidence.jsonl
 ├── events/
 │   └── analysis.jsonl
 └── raw/
@@ -249,13 +246,15 @@ analysis/<analysisGroupID>/
 - `manifest.json` 只记录分析组、组件哈希、工具版本和 schema 版本；
 - `coverage-ledger.json` 只保存状态、计数、ID 引用和 unresolved 摘要，不保存反编译文本；
 - `function-index.json` 只保存函数 ID、地址、名称和文件位置；
-- 每个函数模型、查询和证据单独分片，避免单文件无限增长；
+- `candidates.jsonl` 只记录经过预筛选的攻击面、source、sink 和 sanitizer 候选；
+- `queries.jsonl` 只记录已经执行或明确放弃的高价值查询；
+- `evidence.jsonl` 只记录被 finding、复核或 unresolved 项引用的证据；
 - `events/analysis.jsonl` 追加记录状态变化和工具调用，支持中断恢复；
 - `raw/` 保留原始工具输出，结构化 JSON 只通过路径、哈希和范围引用它们。
 
-函数模型不能内嵌完整反编译代码，只保存 `functionID`、摘要、角色、参数、证据 ID 和原始产物引用。大型反编译文本应保存在原始产物中，Agent 按函数或地址按需读取。
+函数模型不能内嵌完整反编译代码，只保存 `functionID`、摘要、角色、参数、证据 ID 和原始产物引用。大型反编译文本默认不进入持久化 finding，Agent 按函数或地址按需读取。
 
-路径查询结果也分为摘要和详细结果：账本只保存 `queryID`、状态、路径数量、覆盖范围和详细结果引用；具体路径边写入对应查询文件。重复的函数、调用点和证据通过 ID 去重。
+路径查询结果也分为摘要和保留细节：账本只保存 `queryID`、状态、路径数量、覆盖范围和查询记录引用；被 finding、复核或 unresolved 项引用的路径边写入 `queries.jsonl`，其余路径只保留计数和原始结果引用。重复的函数、调用点和证据通过 ID 去重。
 
 文件写入需要设置边界：
 
@@ -265,4 +264,51 @@ analysis/<analysisGroupID>/
 - 所有分片使用稳定 ID 和 schema 版本，避免依赖文件名顺序；
 - 读取 Agent 上下文时只加载当前任务相关的摘要和证据，不把整个分析组放入 prompt。
 
-当单个分析组的分片数量或查询记录达到实际瓶颈后，再引入 SQLite 或专用索引。数据库应从这些结构化分片和原始产物导入，不能取代证据来源。
+当单个分析组的 JSONL 或查询记录达到实际瓶颈后，再引入 SQLite 或专用索引。数据库应从这些紧凑记录和原始产物导入，不能取代证据来源。
+
+## 大型分析组的稀疏策略
+
+一个分析组可能包含数千到数万函数。此时不能要求 Agent 阅读全部函数，也不能要求系统为所有函数建立完整安全模型。分析采用三层数据：
+
+```text
+全量静态索引
+  → 高价值候选摘要
+  → 当前路径和最终发现所需的证据
+```
+
+全量静态索引由 Ghidra 或路径后端按页提供，不全部复制到 Agent 上下文。候选摘要只保留满足以下条件的函数：
+
+- 命中外部导入、攻击面字符串或危险操作；
+- 位于高优先级攻击面或候选 source/sink 路径；
+- 被其他已确认函数调用或引用；
+- Agent 明确请求继续检查。
+
+查询和候选排序使用预算：
+
+```text
+max_candidate_functions
+max_sink_queries
+max_path_depth
+max_nodes_per_query
+max_retained_evidence_bytes
+```
+
+这些预算属于分析任务级设置，不写入每条函数记录。达到预算后，CoverageLedger 记录 `budget_exhausted`，Agent 输出 `inconclusive` 或保留待处理项，不把未检查对象当成安全。
+
+保留证据分成三种：
+
+1. **临时观察**：只存在于当前 Agent 回合或工具缓存中，不写入长期产物；
+2. **候选摘要**：写入 `candidates.jsonl`，只包含函数、地址、角色、理由和证据引用；
+3. **结论证据**：只有被 finding、误报排除或 unresolved 项引用时，才写入 `evidence.jsonl`。
+
+这样可以适当利用 Agent 当前上下文记忆能力，同时保留能恢复、复核和生成报告所需的最小本地证据。上下文记忆不能作为唯一持久化来源；跨轮次必须依靠紧凑摘要和证据 ID 恢复。
+
+为避免 Agent lost in the middle，每个阶段只向它提供：
+
+- 阶段目标和完成条件；
+- 当前高价值候选的摘要；
+- 当前查询及其结果；
+- 与当前结论直接相关的证据；
+- CoverageLedger 的未完成项和预算状态。
+
+完整函数列表、全部反编译文本和历史对话不自动拼接进下一轮 prompt。

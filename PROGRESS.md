@@ -24,7 +24,8 @@
 - Ghidra 接入：使用外部 GhidraMCP 提供反编译、函数、导入、导出、字符串、调用和交叉引用 MCP 工具；headless 启动链路已在本机验证。
 - 配置与工作流：根目录 `config.toml.example` 提供 Agent 配置模板，真实 `config.toml` 被忽略；`部署与使用手册.md` 和 `docs/06-工作流.md` 已建立；静态污点工具比较记录在 `docs/07-静态污点工具调研.md`。
 - Prompt 与覆盖账本：`docs/08-Prompt与覆盖账本设计.md` 已定义攻击面、source/sink 自定义模型、sink 驱动查询、覆盖结束条件和不同 CWE 的阶段化 prompt 组织。
-- 产物规模约束：账本只保存摘要和引用，函数模型、查询、证据按 ID 分片，原始工具结果独立保存，避免单个 JSON 或 prompt 无限增长。
+- 产物规模约束：账本只保存摘要和引用，候选、查询和证据使用紧凑 JSONL，原始工具结果独立保存，避免单个 JSON 或 prompt 无限增长。
+- 大型分析组策略：默认采用紧凑 JSONL 和稀疏证据；只保留高价值候选、被引用证据和 unresolved 项，设置候选、查询、路径和证据预算，避免函数数量导致 Agent lost in the middle。
 
 ## 实现与 docs/03 的差距
 
