@@ -2,6 +2,8 @@
 
 from .plugins import Cwe78Plugin, CwePlugin
 from .runtime import AgentRequest, AgentResponse, ClaudeCodeRuntime, OpenCodeRuntime
+from .models import FunctionSecurityModel, PathQueryRecord, PropagationMapping
+from .coverage import AnalysisCoverageLedger, SurfaceRecord
 
 __all__ = [
     "AgentRequest",
@@ -10,4 +12,9 @@ __all__ = [
     "OpenCodeRuntime",
     "Cwe78Plugin",
     "CwePlugin",
+    "FunctionSecurityModel",
+    "PathQueryRecord",
+    "PropagationMapping",
+    "AnalysisCoverageLedger",
+    "SurfaceRecord",
 ]
