@@ -217,3 +217,52 @@ PoC prompt 只在证据阶段完成后运行。它引用发现项和证据，不
 5. 结构化 finding 状态和证据引用。
 
 参数级污点传播后端另行接入。它应实现统一的 `query_sink_paths` 接口，Agent 不直接依赖具体分析引擎。
+
+## 产物规模与存储布局
+
+分析产物可能包含数万函数、调用关系、反编译文本和大量路径。不能把完整反编译结果、所有 P-code 和全部证据放进一个 JSON，也不能把原始工具输出重复复制到每个 finding 中。
+
+第一版采用“索引小文件 + 分片产物 + 原始结果引用”的布局：
+
+```text
+analysis/<analysisGroupID>/
+├── manifest.json
+├── state/
+│   ├── coverage-ledger.json
+│   ├── function-index.json
+│   └── findings.json
+├── models/
+│   └── functions/<functionID>.json
+├── queries/
+│   └── <queryID>.json
+├── evidence/
+│   └── <evidenceID>.json
+├── events/
+│   └── analysis.jsonl
+└── raw/
+    ├── ghidra/
+    └── path-backend/
+```
+
+各文件职责保持单一：
+
+- `manifest.json` 只记录分析组、组件哈希、工具版本和 schema 版本；
+- `coverage-ledger.json` 只保存状态、计数、ID 引用和 unresolved 摘要，不保存反编译文本；
+- `function-index.json` 只保存函数 ID、地址、名称和文件位置；
+- 每个函数模型、查询和证据单独分片，避免单文件无限增长；
+- `events/analysis.jsonl` 追加记录状态变化和工具调用，支持中断恢复；
+- `raw/` 保留原始工具输出，结构化 JSON 只通过路径、哈希和范围引用它们。
+
+函数模型不能内嵌完整反编译代码，只保存 `functionID`、摘要、角色、参数、证据 ID 和原始产物引用。大型反编译文本应保存在原始产物中，Agent 按函数或地址按需读取。
+
+路径查询结果也分为摘要和详细结果：账本只保存 `queryID`、状态、路径数量、覆盖范围和详细结果引用；具体路径边写入对应查询文件。重复的函数、调用点和证据通过 ID 去重。
+
+文件写入需要设置边界：
+
+- 单个函数模型、查询摘要和证据记录限制大小；
+- 反编译文本、调用图和路径结果超过阈值时分块或压缩；
+- JSONL 日志按大小或分析轮次滚动；
+- 所有分片使用稳定 ID 和 schema 版本，避免依赖文件名顺序；
+- 读取 Agent 上下文时只加载当前任务相关的摘要和证据，不把整个分析组放入 prompt。
+
+当单个分析组的分片数量或查询记录达到实际瓶颈后，再引入 SQLite 或专用索引。数据库应从这些结构化分片和原始产物导入，不能取代证据来源。
