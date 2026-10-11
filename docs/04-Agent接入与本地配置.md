@@ -21,11 +21,12 @@ cp config.toml.example config.toml
 runtime = "opencode"
 provider = "deepseek"
 model = "deepseek-flash"
-api_key_env = "DEEPSEEK_API_KEY"
+api_key = "sk-替换为你的 DeepSeek API Key"
+base_url = "https://api.deepseek.com/v1"
 timeout = 3600
 ```
 
-API Key 只通过环境变量提供。DeepSeek 当前推荐模型名是 `deepseek-flash`；`deepseek-v4-flash` 是兼容旧名，不建议新配置继续使用。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
+API Key 直接写入本地 `config.toml`，不要提交该文件。DeepSeek 当前推荐模型名是 `deepseek-flash`；`deepseek-v4-flash` 是兼容旧名，不建议新配置继续使用。`base_url` 改成任意 OpenAI-compatible 服务地址即可使用本地模型。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
 
 ```bash
 export GHIDRA_INSTALL_DIR=/path/to/ghidra

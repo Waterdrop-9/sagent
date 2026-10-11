@@ -38,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
             source_root,
             Path(directory) / f"{config.agent.runtime}-mcp.json",
             ghidra=ghidra,
+            provider=config.agent.provider,
+            model=config.agent.model,
+            api_key=config.agent.api_key,
+            base_url=config.agent.base_url,
         )
         request = AgentRequest(
             system_prompt=plugin.system_prompt,
@@ -46,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
             cwd=Path.cwd(),
             model=config.agent.model,
             provider=config.agent.provider,
+            base_url=config.agent.base_url,
             environment=agent_environment(config.agent),
         )
         command = runtime.build_command(request)
@@ -54,7 +59,10 @@ def main(argv: list[str] | None = None) -> int:
             print(" ".join(command))
             print("\nSYSTEM PROMPT:\n" + request.system_prompt)
             print("\nUSER PROMPT:\n" + request.user_prompt)
-            print("\nMCP CONFIG:\n" + config_path.read_text(encoding="utf-8"))
+            mcp_config = config_path.read_text(encoding="utf-8")
+            if config.agent.api_key:
+                mcp_config = mcp_config.replace(config.agent.api_key, "<redacted>")
+            print("\nMCP CONFIG:\n" + mcp_config)
             return 0
         try:
             response = runtime.run(request)

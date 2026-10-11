@@ -18,7 +18,8 @@ class AgentConfig:
     runtime: str
     provider: str
     model: str | None
-    api_key_env: str | None
+    api_key: str | None
+    base_url: str | None
     timeout: float
 
 
@@ -52,7 +53,7 @@ def load_config(path: str | Path = "config.toml") -> Config:
     if set(raw) != {"agent"} or not isinstance(raw.get("agent"), dict):
         raise ConfigError("配置只允许包含 [agent] 表")
     agent = raw["agent"]
-    allowed = {"runtime", "provider", "model", "api_key_env", "timeout"}
+    allowed = {"runtime", "provider", "model", "api_key", "base_url", "timeout"}
     unknown = set(agent) - allowed
     if unknown:
         raise ConfigError(f"未知 agent 配置项: {sorted(unknown)}")
@@ -67,10 +68,14 @@ def load_config(path: str | Path = "config.toml") -> Config:
     if model is not None and not isinstance(model, str):
         raise ConfigError("agent.model 必须是字符串")
     model = model or None
-    api_key_env = agent.get("api_key_env")
-    if api_key_env is not None and not isinstance(api_key_env, str):
-        raise ConfigError("agent.api_key_env 必须是字符串")
-    api_key_env = api_key_env or None
+    api_key = agent.get("api_key")
+    if api_key is not None and not isinstance(api_key, str):
+        raise ConfigError("agent.api_key 必须是字符串")
+    api_key = api_key or None
+    base_url = agent.get("base_url")
+    if base_url is not None and not isinstance(base_url, str):
+        raise ConfigError("agent.base_url 必须是字符串")
+    base_url = base_url or None
     timeout = agent.get("timeout", 3600)
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError("agent.timeout 必须是有限正数")
@@ -80,18 +85,23 @@ def load_config(path: str | Path = "config.toml") -> Config:
             runtime=runtime,
             provider=provider,
             model=model,
-            api_key_env=api_key_env,
+            api_key=api_key,
+            base_url=base_url,
             timeout=float(timeout),
         ),
     )
 
 
 def agent_environment(config: AgentConfig) -> dict[str, str]:
-    """读取可选 API key；缺失时交给底座给出认证错误。"""
-    if not config.api_key_env:
+    """为 Claude 类底座准备凭据和兼容接口地址。"""
+    if config.runtime != "claude":
         return {}
-    value = os.environ.get(config.api_key_env)
-    return {config.api_key_env: value} if value else {}
+    environment: dict[str, str] = {}
+    if config.api_key:
+        environment["ANTHROPIC_API_KEY"] = config.api_key
+    if config.base_url:
+        environment["ANTHROPIC_BASE_URL"] = config.base_url
+    return environment
 
 
 def load_ghidra_config(environ: dict[str, str] | None = None) -> GhidraMcpConfig:

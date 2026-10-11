@@ -78,6 +78,10 @@ class Cwe78Plugin:
         source_root: Path,
         *,
         ghidra: GhidraMcpConfig,
+        provider: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ) -> dict[str, object]:
         """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。"""
 
@@ -124,8 +128,33 @@ class Cwe78Plugin:
             "claude": {"mcpServers": claude_servers},
             "opencode": {
                 "$schema": "https://opencode.ai/config.json",
+                "model": f"{provider}/{model}" if provider and model else None,
+                "providers": self._provider_config(provider, model, api_key, base_url),
                 "mcp": {"servers": opencode_servers},
             },
+        }
+
+    @staticmethod
+    def _provider_config(
+        provider: str | None,
+        model: str | None,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> dict[str, object]:
+        if not provider or not model:
+            return {}
+        settings: dict[str, str] = {}
+        if api_key:
+            settings["apiKey"] = api_key
+        if base_url:
+            settings["baseURL"] = base_url
+        return {
+            provider: {
+                "name": provider,
+                "package": "@opencode/ai/providers/openai-compatible",
+                "settings": settings,
+                "models": {model: {"name": model}},
+            }
         }
 
 

@@ -9,8 +9,9 @@ runtime = "opencode"
 provider = "deepseek"
 # 留空表示使用底座默认模型。
 model = "deepseek-flash"
-# 只填写环境变量名，不要填写 API Key 本身。
-# 运行前示例：export DEEPSEEK_API_KEY="..."
-api_key_env = "DEEPSEEK_API_KEY"
+# API Key 直接填写在本地 config.toml；config.toml 已被 gitignore。
+api_key = "sk-替换为你的 DeepSeek API Key"
+# 云端 DeepSeek 使用这个地址；本地 OpenAI-compatible 服务改成自己的地址。
+base_url = "https://api.deepseek.com/v1"
 # Agent 单次运行最长时间（秒）。
 timeout = 3600

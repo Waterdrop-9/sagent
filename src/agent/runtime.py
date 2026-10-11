@@ -23,6 +23,7 @@ class AgentRequest:
     cwd: Path | None = None
     model: str | None = None
     provider: str | None = None
+    base_url: str | None = None
     max_turns: int | None = None
     environment: Mapping[str, str] | None = None
 
