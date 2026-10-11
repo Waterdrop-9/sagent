@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 from pathlib import Path
 
 from .analysis_context import AnalysisContextError, build_contexts, render_contexts
+from .agent_report import AgentReportError, parse_report
 from .config import ConfigError, agent_environment, load_config, load_ghidra_config
 from .plugins import Cwe78Plugin, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
@@ -83,7 +85,11 @@ def main(argv: list[str] | None = None) -> int:
         except AgentRuntimeError as exc:
             parser.error(str(exc))
         else:
-            print(response.text)
+            try:
+                report = parse_report(response.text)
+            except AgentReportError as exc:
+                parser.error(str(exc))
+            print(json.dumps(report, ensure_ascii=False, indent=2))
             return 0
     return 2
 
