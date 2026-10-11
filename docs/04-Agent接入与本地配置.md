@@ -35,6 +35,14 @@ export GHIDRA_MCP_EXTENSION_JAR=/path/to/GhidraMCP.jar
 
 可选变量包括 `GHIDRA_MCP_MODE`、`GHIDRA_MCP_SERVER`、`GHIDRA_MCP_UVX`、`GHIDRA_MCP_PYTHON`、`GHIDRA_MCP_PACKAGE` 和 `GHIDRA_MCP_READY_TIMEOUT`（正整数秒）。它们属于部署环境设置，不写入项目配置模板。
 
+参数级路径后端是可选依赖。安装 angr 的 Python 环境后，设置：
+
+```bash
+export AGENT_PATH_BACKEND_PYTHON=/path/to/python
+```
+
+Sagent 会额外注入 `paths` MCP server，提供 `query_sink_paths`。后端当前返回 RDA 定义链，不等同于完整污点证明；source 可控性、别名和间接调用限制会保留在结果中。
+
 ## 安装和验证
 
 ```bash

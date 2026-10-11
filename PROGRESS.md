@@ -29,6 +29,7 @@
 - 开发推进计划：`docs/09-开发推进计划.md` 已确定阶段一至阶段六的实现、验收、真实 ELF 实验和回滚顺序。
 - 阶段一实验：`docs/10-阶段一真实ELF实验.md` 记录 `server` 的真实 OpenCode + DeepSeek + GhidraMCP 攻击面侦查；发现 `remoteExec → doSystem → popen` 候选路径，并区分了固定常量 `system` 调用。
 - 路径后端试跑：真实 `server` ELF 上 angr CFGFast 成功识别 147 个函数，RDA 对 `doSystem`/`remoteExec` 成功建立 485/952 节点依赖图；Mango 被本地 cmake/unicorn 依赖阻塞，CTADL 尚未完成部署，参数级适配器仍待实现。
+- 参数路径联调：启用 `paths` MCP server 后，真实 Agent 对 `popen@0x401be7` 和 `system@0x4022ef` 均返回 `path_found`；Agent 将前者保留为 candidate，将常量路径后者判为 rejected，实验记录在 `docs/10-阶段一真实ELF实验.md`。
 
 ## 实现与 docs/03 的差距
 

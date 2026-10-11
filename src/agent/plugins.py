@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,6 +158,20 @@ class Cwe78Plugin:
                 "environment": ghidra_env,
             }
         }
+        path_python = os.environ.get("AGENT_PATH_BACKEND_PYTHON")
+        if path_python:
+            path_command = [path_python, "-m", "agent.path_server", "--binary", str(target.resolve())]
+            claude_servers["paths"] = {
+                "command": path_python,
+                "args": path_command[1:],
+                "env": {"PYTHONPATH": str(source_root.resolve())},
+            }
+            opencode_servers["paths"] = {
+                "type": "local",
+                "codemode": False,
+                "command": path_command,
+                "environment": {"PYTHONPATH": str(source_root.resolve())},
+            }
         return {
             "claude": {"mcpServers": claude_servers},
             "opencode": {

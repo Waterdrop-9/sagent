@@ -78,3 +78,30 @@ Agent 同时输出了 function/address、调用点、证据 ID、限制和 cover
 3. Agent 能提出和解释自定义 source/sink wrapper；
 4. Agent 能保留候选、排除和 unresolved 状态；
 5. 仍需要阶段二的 `FunctionSecurityModel`、`AnalysisCoverageLedger` 验证器和参数级路径后端，才能把 candidate 提升为 confirmed。
+
+## 参数路径后端联调
+
+在同一个 `server` ELF 上启用 `AGENT_PATH_BACKEND_PYTHON` 后，OpenCode 同时加载 GhidraMCP 和 `paths` MCP server。Agent 对两个 sink 发起了参数查询：
+
+```text
+query_sink_paths(popen, 0)  → path_found
+query_sink_paths(system, 0) → path_found
+```
+
+`popen` 查询返回：
+
+- caller：`doSystem`；
+- callsite：`0x401be7`；
+- sink argument：`0`；
+- RDA 定义链：寄存器、栈变量和调用点前的参数定义；
+- 限制：source 可控性和跨函数完整性仍需继续验证。
+
+`system` 查询的定义链最终指向常量 `"./files/recv"`。Agent 将该路径判为 `rejected`，而不是漏洞候选。
+
+本次联调确认：
+
+1. Agent 能发现自定义 `remoteExec → doSystem → popen` 路径；
+2. 静态后端能够返回 sink 参数级定义链；
+3. 常量输入可以作为误报排除证据；
+4. `path_found` 仍不等于完整污点证明，最终状态必须保留限制；
+5. 未加载的 `libauth.so`、`liblog.so` 和未解析间接调用进入 unresolved。
