@@ -120,6 +120,7 @@ class Cwe78Plugin:
         opencode_servers: dict[str, object] = {
             "ghidra": {
                 "type": "local",
+                "codemode": False,
                 "command": [uvx, *ghidra_args],
                 "environment": ghidra_env,
             }

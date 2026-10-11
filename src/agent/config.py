@@ -94,8 +94,8 @@ def load_config(path: str | Path = "config.toml") -> Config:
 
 def agent_environment(config: AgentConfig) -> dict[str, str]:
     """为 Claude 类底座准备凭据和兼容接口地址。"""
-    if config.runtime != "claude":
-        return {}
+    if config.runtime == "opencode":
+        return {"AGENT_API_KEY": config.api_key} if config.api_key else {}
     environment: dict[str, str] = {}
     if config.api_key:
         environment["ANTHROPIC_API_KEY"] = config.api_key

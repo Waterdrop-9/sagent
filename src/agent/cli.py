@@ -18,6 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--goal", required=True, help="人工分析目标")
     parser.add_argument("--dry-run", action="store_true", help="只生成 prompt、MCP 配置和命令")
     args = parser.parse_args(argv)
+    args.target = args.target.expanduser().resolve()
 
     try:
         config = load_config(args.config)

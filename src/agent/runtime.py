@@ -6,7 +6,8 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+import tempfile
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Protocol
 
@@ -177,24 +178,34 @@ class OpenCodeRuntime(_CliRuntime):
         prompt = request.user_prompt
         if request.system_prompt:
             prompt = f"[SYSTEM INSTRUCTIONS]\n{request.system_prompt}\n\n[USER TASK]\n{prompt}"
-        command = [self.executable, "run", prompt]
+        # 使用独立服务，确保本次请求读取 Sagent 生成的 provider/MCP 配置。
+        command = [self.executable, "run", "--standalone"]
         if request.model:
             model = request.model
             if request.provider and "/" not in model:
                 model = f"{request.provider}/{model}"
             command.extend(("--model", model))
+        command.append(prompt)
         return tuple(command)
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        environment = dict(self.environment)
-        if request.mcp_config:
-            environment["OPENCODE_CONFIG"] = str(request.mcp_config)
-        original = self.environment
-        self.environment = environment
-        try:
+        if not request.mcp_config:
             return super().run(request)
+        # OpenCode 2 从项目的 .opencode/opencode.json 发现配置。
+        cwd = (request.cwd or Path.cwd()).resolve()
+        config_dir = cwd / ".opencode"
+        config_path = config_dir / "opencode.json"
+        previous = config_path.read_bytes() if config_path.exists() else None
+        config_dir.mkdir(exist_ok=True)
+        try:
+            config_path.write_bytes(request.mcp_config.read_bytes())
+            config_path.chmod(0o600)
+            return super().run(replace(request, cwd=cwd))
         finally:
-            self.environment = original
+            if previous is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                config_path.write_bytes(previous)
 
 
 def runtime_from_name(name: str, **kwargs: object) -> AgentRuntime:
