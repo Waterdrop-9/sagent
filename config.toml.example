@@ -6,11 +6,11 @@
 # 后续开发主用 opencode；claude 作为辅助验证。
 runtime = "opencode"
 # 由 Agent 底座决定可用 provider，例如 anthropic、deepseek。
-provider = "anthropic"
+provider = "deepseek"
 # 留空表示使用底座默认模型。
-model = ""
+model = "deepseek-flash"
 # 只填写环境变量名，不要填写 API Key 本身。
-# 运行前示例：export ANTHROPIC_API_KEY="..."
-api_key_env = "ANTHROPIC_API_KEY"
+# 运行前示例：export DEEPSEEK_API_KEY="..."
+api_key_env = "DEEPSEEK_API_KEY"
 # Agent 单次运行最长时间（秒）。
 timeout = 3600

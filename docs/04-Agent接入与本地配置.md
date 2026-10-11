@@ -19,13 +19,13 @@ cp config.toml.example config.toml
 ```toml
 [agent]
 runtime = "opencode"
-provider = "anthropic"
-model = ""
-api_key_env = "ANTHROPIC_API_KEY"
+provider = "deepseek"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
 timeout = 3600
 ```
 
-API Key 只通过环境变量提供。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
+API Key 只通过环境变量提供。DeepSeek 当前推荐模型名是 `deepseek-flash`；`deepseek-v4-flash` 是兼容旧名，不建议新配置继续使用。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
 
 ```bash
 export GHIDRA_INSTALL_DIR=/path/to/ghidra
