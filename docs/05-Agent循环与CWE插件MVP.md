@@ -26,18 +26,15 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 
 - `runtime.py`：统一 `AgentRuntime` interface，以及 Claude Code 和 OpenCode CLI adapter。
 - `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/cwe-78/*.md` 读取 system prompt 和任务模板，并生成 GhidraMCP 配置。
-- `mcp_server.py`：最小 MCP stdio 工具桥，目前提供 `query_sink_paths`。
 - `cli.py`：选择底座、加载插件、生成 MCP 配置并启动 Agent。
 
 调用示例：
 
 ```bash
 PYTHONPATH=src python3 -m agent.cli \
-  --runtime opencode \
+  --config config.toml \
   --target data/01_simple_demo/server \
   --goal "检查是否存在外部输入到命令执行的路径" \
-  --ghidra-install-dir "$(brew --prefix ghidra)/libexec" \
-  --ghidra-extension-jar /tmp/GhidraMCP.jar \
   --dry-run
 ```
 
@@ -56,7 +53,7 @@ prompts/
 
 ## TaintSage 思想的落点
 
-CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开始调用 `query_sink_paths`，工具返回跨函数数据依赖路径和证据。Agent 再根据 prompt 判断 source 是否可控、路径上是否有拼接和过滤，并输出候选发现。
+CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开始查询参数级路径。路径查询后端接入后，工具返回跨函数数据依赖路径和证据；Agent 再根据 prompt 判断 source 是否可控、路径上是否有拼接和过滤，并输出候选发现。
 
 这复用了 TaintSage 的 sink 驱动路径查询；路径判断和最终解释交给真实 Agent。当前不实现 TaintSage 的 state cache，也不引入 RAG。
 
@@ -74,7 +71,7 @@ CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开�
 
 ## 边界
 
-- 反编译、函数和调用关系由外部 GhidraMCP 提供；当前 fixture 只用于验证 Sagent 的 `query_sink_paths` 证据工具。
+- 反编译、函数和调用关系由外部 GhidraMCP 提供；参数级路径查询后端尚未接入。
 - GhidraMCP 不等于完整污点分析。参数级污点传播、路径约束和误报复核仍需由后续工具补足。
 - Claude/OpenCode 的 CLI 负责真正的规划和循环；Sagent 不复制它们的 Agent loop。
 - 后续开发默认使用 OpenCode，Claude Code 用于辅助验证；两个底座都通过同一个 `AgentRuntime` 接口接入。

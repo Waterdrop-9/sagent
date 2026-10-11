@@ -22,7 +22,9 @@ class AgentRequest:
     mcp_config: Path | None = None
     cwd: Path | None = None
     model: str | None = None
+    provider: str | None = None
     max_turns: int | None = None
+    environment: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,7 @@ class _CliRuntime:
         if not executable:
             raise AgentRuntimeError(
                 f"找不到 {self.name} Agent CLI: {self.executable}；"
-                f"请安装它或传入 --{self.name}-executable"
+                f"请安装它，或在 PATH 中提供 {self.name} 命令"
             )
         return executable
 
@@ -73,6 +75,8 @@ class _CliRuntime:
         command = self.build_command(request)
         env = os.environ.copy()
         env.update(self.environment)
+        if request.environment:
+            env.update(request.environment)
         try:
             completed = subprocess.run(
                 command,
@@ -174,7 +178,10 @@ class OpenCodeRuntime(_CliRuntime):
             prompt = f"[SYSTEM INSTRUCTIONS]\n{request.system_prompt}\n\n[USER TASK]\n{prompt}"
         command = [self.executable, "run", prompt]
         if request.model:
-            command.extend(("--model", request.model))
+            model = request.model
+            if request.provider and "/" not in model:
+                model = f"{request.provider}/{model}"
+            command.extend(("--model", model))
         return tuple(command)
 
     def run(self, request: AgentRequest) -> AgentResponse:

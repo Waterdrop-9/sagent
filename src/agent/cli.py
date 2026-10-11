@@ -6,53 +6,47 @@ import argparse
 import tempfile
 from pathlib import Path
 
+from .config import ConfigError, agent_environment, load_config, load_ghidra_config
 from .plugins import Cwe78Plugin, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sagent Agent 原型")
-    parser.add_argument("--runtime", choices=("claude", "opencode"), required=True)
-    parser.add_argument("--executable", help="Agent CLI 路径；默认使用 PATH 中的命令")
+    parser.add_argument("--config", type=Path, default=Path("config.toml"))
     parser.add_argument("--target", type=Path, required=True, help="待分析 ELF 或固件组件")
     parser.add_argument("--goal", required=True, help="人工分析目标")
-    parser.add_argument("--fixture", type=Path, help="可选的静态路径证据 fixture")
-    parser.add_argument("--ghidra-mode", choices=("headless", "gui"), default="headless")
-    parser.add_argument("--ghidra-server", default="http://127.0.0.1:8080/")
-    parser.add_argument("--ghidra-install-dir", type=Path)
-    parser.add_argument("--ghidra-extension-jar", type=Path)
-    parser.add_argument("--model")
-    parser.add_argument("--max-turns", type=int)
-    parser.add_argument("--timeout", type=float, default=3600)
     parser.add_argument("--dry-run", action="store_true", help="只生成 prompt、MCP 配置和命令")
     args = parser.parse_args(argv)
 
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        parser.error(str(exc))
     source_root = Path(__file__).resolve().parents[1]
+    try:
+        ghidra = load_ghidra_config()
+    except ConfigError as exc:
+        parser.error(str(exc))
     plugin = Cwe78Plugin()
-    runtime_kwargs: dict[str, object] = {"timeout": args.timeout}
-    if args.executable:
-        runtime_kwargs["executable"] = args.executable
-    runtime = runtime_from_name(args.runtime, **runtime_kwargs)
+    runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
     with tempfile.TemporaryDirectory(prefix="agent-") as directory:
         config_path = write_runtime_config(
             plugin,
-            args.runtime,
+            config.agent.runtime,
             args.target,
             source_root,
-            Path(directory) / f"{args.runtime}-mcp.json",
-            fixture=args.fixture,
-            ghidra_mode=args.ghidra_mode,
-            ghidra_server=args.ghidra_server,
-            ghidra_install_dir=args.ghidra_install_dir,
-            ghidra_extension_jar=args.ghidra_extension_jar,
+            Path(directory) / f"{config.agent.runtime}-mcp.json",
+            ghidra=ghidra,
         )
         request = AgentRequest(
             system_prompt=plugin.system_prompt,
             user_prompt=plugin.build_user_prompt(args.goal, args.target),
             mcp_config=config_path,
             cwd=Path.cwd(),
-            model=args.model,
-            max_turns=args.max_turns,
+            model=config.agent.model,
+            provider=config.agent.provider,
+            environment=agent_environment(config.agent),
         )
         command = runtime.build_command(request)
         if args.dry_run:

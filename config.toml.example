@@ -1,0 +1,16 @@
+# Sagent 本地配置模板
+# 复制为 config.toml 后按需修改：cp config.toml.example config.toml
+# config.toml 已加入 .gitignore，不要提交真实 API Key。
+
+[agent]
+# 后续开发主用 opencode；claude 作为辅助验证。
+runtime = "opencode"
+# 由 Agent 底座决定可用 provider，例如 anthropic、deepseek。
+provider = "anthropic"
+# 留空表示使用底座默认模型。
+model = ""
+# 只填写环境变量名，不要填写 API Key 本身。
+# 运行前示例：export ANTHROPIC_API_KEY="..."
+api_key_env = "ANTHROPIC_API_KEY"
+# Agent 单次运行最长时间（秒）。
+timeout = 3600

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import shutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+from .config import GhidraMcpConfig
 
 
 @dataclass(frozen=True)
@@ -76,23 +77,29 @@ class Cwe78Plugin:
         target: Path,
         source_root: Path,
         *,
-        fixture: Path | None = None,
-        ghidra_mode: str = "headless",
-        ghidra_server: str = "http://127.0.0.1:8080/",
-        ghidra_install_dir: Path | None = None,
-        ghidra_extension_jar: Path | None = None,
+        ghidra: GhidraMcpConfig,
     ) -> dict[str, object]:
         """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。"""
 
-        if ghidra_mode not in {"headless", "gui"}:
-            raise ValueError(f"不支持的 Ghidra 模式: {ghidra_mode}")
-        uvx = shutil.which("uvx") or "uvx"
+        ghidra_mode = ghidra.mode
+        ghidra_server = ghidra.server
+        ghidra_uvx = ghidra.uvx
+        ghidra_python = ghidra.python
+        ghidra_package = ghidra.package
+        ready_timeout = ghidra.ready_timeout
+        uvx = shutil.which(ghidra_uvx) or ghidra_uvx
         ghidra_args = [
+            "--python",
+            ghidra_python,
             "--from",
-            "ghidra-mcp[headless] @ git+https://github.com/LaurieWired/GhidraMCP",
+            ghidra_package,
             "ghidra-mcp",
+            "--ready-timeout",
+            str(ready_timeout),
         ]
         ghidra_env: dict[str, str] = {}
+        ghidra_install_dir = ghidra.install_dir
+        ghidra_extension_jar = ghidra.extension_jar
         if ghidra_mode == "headless":
             ghidra_args.extend(("--headless", "--binary", str(target.resolve())))
             if ghidra_install_dir:
@@ -113,24 +120,6 @@ class Cwe78Plugin:
                 "environment": ghidra_env,
             }
         }
-        if fixture:
-            evidence_command = [
-                sys.executable,
-                "-m",
-                "agent.mcp_server",
-                "--fixture",
-                str(fixture.resolve()),
-            ]
-            claude_servers["evidence"] = {
-                "command": evidence_command[0],
-                "args": evidence_command[1:],
-                "env": {"PYTHONPATH": str(source_root.resolve())},
-            }
-            opencode_servers["evidence"] = {
-                "type": "local",
-                "command": evidence_command,
-                "environment": {"PYTHONPATH": str(source_root.resolve())},
-            }
         return {
             "claude": {"mcpServers": claude_servers},
             "opencode": {

@@ -2,99 +2,62 @@
 
 状态：配置设计与 Agent adapter 原型。
 
-## 已确认方向
+## 接入方向
 
-使用自有 Agent 适配层，首期接入 Claude Code 和 OpenCode，并支持通过各自底座配置选择模型。Agent 底座与模型提供方分开配置。
+Sagent 通过统一 `AgentRuntime` 接入 Claude Code 和 OpenCode。后续开发主用 OpenCode，Claude Code 用于辅助验证。CWE prompt 保存在 `prompts/<cwe>/`，Ghidra 反编译和导航使用外部 [GhidraMCP](https://github.com/LaurieWired/GhidraMCP)。
 
-当前原型通过 CLI adapter 调用两个生产级 Agent 底座：Claude Code 使用非交互 print 模式，OpenCode 使用 `run` 模式。具体命令参数和 MCP 配置只存在于 adapter 内部。
+## 配置文件
 
-Agent 的 prompt 和工具由 CWE 插件提供。Prompt 以 `prompts/<cwe>/` 下的 Markdown 文件保存。反编译和二进制导航统一使用外部 [GhidraMCP](https://github.com/LaurieWired/GhidraMCP)，通过 MCP stdio server 注入 Claude/OpenCode；业务层不直接依赖 Ghidra API。整体设计见 [Agent 底座、工具和 CWE 插件 MVP](./05-Agent循环与CWE插件MVP.md)。
+不要把本地配置直接提交。复制根目录模板：
 
-## 配置草案
+```bash
+cp config.toml.example config.toml
+```
 
-长期配置仍可使用本地 `config.toml` 设置底座、提供方、模型、地址和 API Key。当前 MVP 使用 CLI 参数选择底座，MCP 配置由插件在运行期间生成。后续开发以 OpenCode 为主，Claude Code 作为辅助验证：
+`config.toml` 只保存 Agent 相关配置：
 
 ```toml
 [agent]
-runtime = "claude"
-
-[model]
-provider = "deepseek"
+runtime = "opencode"
+provider = "anthropic"
 model = ""
-base_url = ""
-api_key = ""
-# 可改用环境变量；指定时优先读取该变量，缺失则报错。
-api_key_env = ""
+api_key_env = "ANTHROPIC_API_KEY"
+timeout = 3600
 ```
 
-支持直接配置 API Key，也支持环境变量引用。实际密钥不写入日志和报告；本地配置文件不提交，仓库只保留无密钥示例。
+API Key 只通过环境变量提供。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
 
-读取配置时校验必需字段。连接错误、鉴权失败和模型不可用分别报告，不能变成空分析结果。
+```bash
+export GHIDRA_INSTALL_DIR=/path/to/ghidra
+export GHIDRA_MCP_EXTENSION_JAR=/path/to/GhidraMCP.jar
+```
 
-## 安装 Agent 和 Ghidra
+可选变量包括 `GHIDRA_MCP_MODE`、`GHIDRA_MCP_SERVER`、`GHIDRA_MCP_UVX`、`GHIDRA_MCP_PYTHON`、`GHIDRA_MCP_PACKAGE` 和 `GHIDRA_MCP_READY_TIMEOUT`（正整数秒）。它们属于部署环境设置，不写入项目配置模板。
 
-macOS 上的安装命令：
+## 安装和验证
 
 ```bash
 npm install -g --allow-scripts=@anthropic-ai/claude-code,@opencode/cli \
   @anthropic-ai/claude-code @opencode/cli
 brew install ghidra
-```
-
-安装后检查：
-
-```bash
 claude --version
 claude doctor
 opencode --version
-ghidraRun
+java -version
 ```
 
-GhidraMCP 需要扩展 jar。先获取仓库并构建扩展：
+GhidraMCP 扩展构建和 headless 验证步骤见根目录 [`部署与使用手册.md`](../部署与使用手册.md)。
+
+## 运行
 
 ```bash
-git clone https://github.com/LaurieWired/GhidraMCP /tmp/GhidraMCP
-GHIDRA_INSTALL_DIR="$(brew --prefix ghidra)/libexec" \
-  "$(brew --prefix ghidra)/libexec/support/gradle/gradlew" \
-  -p /tmp/GhidraMCP/extension buildExtension
-unzip -p /tmp/GhidraMCP/extension/dist/*.zip \
-  'GhidraMCP/lib/GhidraMCP.jar' > /tmp/GhidraMCP.jar
-```
-
-首次运行使用 headless GhidraMCP：
-
-```bash
+export ANTHROPIC_API_KEY="..."  # 使用 Claude 时设置对应变量
+opencode auth login               # 使用 OpenCode 时完成 provider 登录
 PYTHONPATH=src python3 -m agent.cli \
-  --runtime opencode \
+  --config config.toml \
   --target data/01_simple_demo/server \
   --goal "检查是否存在外部输入到命令执行的路径" \
-  --ghidra-install-dir "$(brew --prefix ghidra)/libexec" \
-  --ghidra-extension-jar /tmp/GhidraMCP.jar \
   --dry-run
 ```
 
-本机验证记录（2026-10-11）：Claude Code `2.1.296`、OpenCode `2.0.26` 已安装，Ghidra `12.1.2` 已安装；`claude doctor` 通过安装检查，但当前没有登录 Claude 或配置 API Key；OpenCode CLI 已能启动，但尚未完成 provider 登录。GhidraMCP headless MCP server 已使用 Ghidra 12.1.2 和构建出的 extension jar 完成 MCP 初始化验证。
-
-后续开发默认使用 OpenCode：
-
-```bash
-opencode auth login
-```
-
-Claude Code 作为辅助验证：
-
-```bash
-claude
-```
-
-真实调用前需要分别完成 Claude Code 和 OpenCode 的账号或 API 配置。GhidraMCP 也支持打开 Ghidra GUI 插件后使用 `--ghidra-mode gui --ghidra-server http://127.0.0.1:8080/`。
-
-## 当前原型限制
-
-- 本机必须自行安装 Claude Code 或 OpenCode 并完成认证。
-- 当前只提供 CWE-78 插件和 `query_sink_paths` fixture 工具。
-- CWE-78 prompt 位于 `prompts/cwe-78/system.md` 和 `prompts/cwe-78/task.md`，修改 prompt 不需要修改 Python。
-- GhidraMCP 已接入，当前提供反编译、函数、导入、导出、字符串、调用和交叉引用工具。
-- 参数级静态污点传播工具仍在设计中；没有 `evidence` fixture 时，Agent 必须把 Ghidra 的调用/反编译观察标为候选证据。
-
-依赖检索仍然独立于 Agent 底座；Agent 只消费静态分析工具返回的结构化证据。
+去掉 `--dry-run` 后由真实 Agent 执行。默认不执行样本。
