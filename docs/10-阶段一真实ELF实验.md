@@ -67,7 +67,7 @@ Agent 同时输出了 function/address、调用点、证据 ID、限制和 cover
 - `libauth.so` 和 `liblog.so` 未加载；
 - 间接调用和数据表语义未完全解析；
 - `recv` 输入的 NUL 终止行为未确认；
-- 覆盖账本暂时由 Agent 输出，尚未由 Sagent 验证器强制检查。
+- 原始 Agent coverage 不能作为完成证明；恢复后的本地产物门禁会重新核对工具 evidenceID、函数模型和每个 sink 参数。
 
 ## 阶段结论
 
@@ -118,3 +118,14 @@ query_sink_paths(system, 0) → path_found
 - `receiveFile` 的非 CWE-78 路径：`rejected`。
 
 CLI 会拒绝缺少 `findings`、`unresolved` 或 `coverage` 的输出，也会拒绝没有 `evidenceIDs` 或状态值非法的 finding。
+
+## 本地产物复核
+
+2026-10-12 使用同一次真实响应写入本地运行目录后，Sagent 重新核验得到：
+
+- 3 条 `path_found` 查询，按解析后的 sink 地址与外部函数模型匹配；
+- 11 个函数模型，其中 Agent 使用的 `sink_wrapper`、`validator` 和对象形式 `propagationMap` 被归一化为内部模型；
+- `analysisStatus=inconclusive`，阻塞项包含未知攻击面、依赖库未在同一 Ghidra 会话加载、跨函数路径未覆盖、candidate 模型和无本地证据的静态观察；
+- Agent 自报的 `pathToolResult` 没有生成查询记录，只有 paths MCP 代理实际保存的 JSONL 才能进入账本。
+
+这次复核说明 `path_found` 可以成为证据，但不能单独把 finding 提升为 confirmed，也不能把未覆盖范围当作安全。
