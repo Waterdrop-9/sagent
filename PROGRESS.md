@@ -64,6 +64,7 @@
 - PoC 命名与产物索引：交付物命名去掉 `.poc`（`<functionID>.CWE-78.md`/`.py`）；CLI 在 PoC 阶段结束后自动清点 `poc/` 文件写入 `poc-manifest.json` 的 `files` 字段，作为交付物索引；真实请求按最终命名复跑成功（`run-5e3cec028963`，旧轮次归档到 `历史轮次/`）。
 - 使用手册更新：`部署与使用手册.md` §5 补完整产物目录树（run 级账目与 `poc/` 交付物）和"如何查看结果"四步顺序（report.json 结论 → 覆盖账本 → 原始证据 → PoC 交付物），并修正已过时的 PoC 段落。
 - code review 清理技术债：PoC 外部调用补全开始/结束/失败日志；`poc-manifest.json` 成功/失败形态统一（`files` 恒存在、失败为空列表 + `error`）；术语统一为"独立的 PoC 阶段"（去掉"外部"）；`{created_at}` 占位符改填真实时间戳；模板交付物命名参数化 `<functionID>.<CWE编号>.md/.py`（`{cwe_id}` 跟随 `--cwe`）；`docs/11` 列入 `docs/文档索引.md`；PWD 回归测试移植进版本库（tracked `tests/20261012_01_覆盖门禁_r01/test_workflow.py` 的 `RuntimeEnvTests`）。清理后真实 PoC 复跑成功（`run-d4832cfc3a71`）。
+- `--cwe` 默认跑全部 CWE：默认值改为 `all`，一次运行依次执行全部支持的 CWE（每个 CWE 一个独立 `run-<id>`，`report.json` 记录 `cwe` 字段）；只想跑单个类型时显式传 `--cwe CWE-78`。顺带修复 `MarkdownCwePlugin.build_user_prompt` 用 `str.format` 填充导致模板里 C 代码字面花括号报 `KeyError` 的问题（改为字面替换 `{target}`/`{goal}`）。r02 新增"无 `--cwe` 默认跑全部 CWE"端到端测试。
 
 ## 暂缓项
 

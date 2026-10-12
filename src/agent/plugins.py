@@ -89,7 +89,9 @@ class MarkdownCwePlugin:
     def build_user_prompt(
         self, goal: str, target: Path, analysis_context: str = ""
     ) -> str:
-        prompt = self.task_prompt.format(target=target, goal=goal)
+        # 不用 str.format：模板里有 C 代码示例，字面花括号会被当成格式字段。
+        # 只做字面替换，模板没有占位符时也不受影响。
+        prompt = self.task_prompt.replace("{target}", str(target)).replace("{goal}", goal)
         if analysis_context:
             prompt += "\n\n## 分析组上下文\n\n```json\n" + analysis_context + "\n```"
         return prompt

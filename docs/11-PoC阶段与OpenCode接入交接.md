@@ -42,7 +42,7 @@ PYTHONPATH=src python3 -m agent.cli \
   --output tests/YYYYMMDD_序号_目的_rxx/产物
 ```
 
-`--poc` 与本地 `[poc].enabled = true` 任一满足即可启用阶段；两者都关闭时只运行分析阶段。
+`--poc` 与本地 `[poc].enabled = true` 任一满足即可启用阶段；两者都关闭时只运行分析阶段。`--cwe` 缺省为 `all`（依次跑全部支持的 CWE），示例里显式指定 `CWE-78` 只跑单个类型。
 
 ## OpenCode 调用链
 
@@ -129,6 +129,7 @@ PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evide
 - 真实 OpenCode PoC 请求已成功（最终模板 + 干净布局）：模型只引用已有 evidenceID，生成 `poc/doSystem.CWE-78.md`（8 小节：基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性，人工验证步骤全部标注“需人工执行”）和可运行的 `poc/doSystem.CWE-78.py`（--host/--port/--command 命令行参数、默认端口 8002=0x1f42 有证据出处、默认只发无害命令 `id`、带超时与异常处理、仅供授权隔离环境由人工执行）；文件名不再带 `.poc`；`poc-manifest.json` 记录 `executed: false` 和 `files` 清单；未执行样本。
 - 真实请求暴露并修复了一个运行时缺陷：调用方 shell 携带过期 `PWD`（指向仓库根）时 opencode 项目发现失效，报 `Model unavailable`；`_CliRuntime.run` 现在把 `PWD` 修正为实际 cwd，回归测试已进入版本库（`tests/20261012_01_覆盖门禁_r01/test_workflow.py` 的 `RuntimeEnvTests`）。
 - code review 清理（2026-10-13）：PoC 外部调用补全开始/结束/失败日志；`poc-manifest.json` 成功/失败形态统一（`files` 恒存在，失败为空）；术语统一为"独立的 PoC 阶段"（去掉"外部"，含 docs/06）；`{created_at}` 改填真实时间戳；模板文件名改为 `<functionID>.<CWE编号>.md/.py`（`{cwe_id}` 参数化，跟随 `--cwe`）；`docs/11` 列入 `docs/文档索引.md`；`docs/11` 与手册补失败 manifest 说明。
+- `--cwe` 默认 `all`（2026-10-13）：不再要求每次指定单个 CWE，缺省时依次运行全部支持的 CWE（每个 CWE 独立 `run-<id>`，`report.json` 带 `cwe` 字段）；同时修复 `build_user_prompt` 用 `str.format` 导致模板 C 代码花括号报 `KeyError` 的问题（改字面替换）。
 - 真实 `server` demo 的静态路径后端曾返回 `path_found`，但 RDA 只提供函数内定义链；demo 自身最终无 confirmed finding，PoC 为 `skipped_no_confirmed_findings`。验证“成功生成 PoC”走 confirmed fixture 路径。
 
 ## 恢复后的检查顺序
