@@ -406,10 +406,49 @@ class _CandidateIndex:
         if not compatible:
             return _Resolution(None, tuple(candidates), False, "找到候选文件，但架构或字节序不兼容")
 
+        narrowed, path_reason = self._narrow_by_loader_paths(compatible, source)
+        if path_reason and not narrowed:
+            return _Resolution(None, tuple(compatible), False, path_reason)
+        if narrowed:
+            compatible = narrowed
+
         unique: dict[str, ElfInfo] = {info.digest: info for info in compatible}
         if len(unique) == 1:
-            return _Resolution(next(iter(unique.values())), tuple(unique.values()))
-        return _Resolution(None, tuple(unique.values()), False, "找到多个内容不同的兼容候选，暂不选择")
+            return _Resolution(
+                next(iter(unique.values())), tuple(unique.values()),
+                reason=path_reason,
+            )
+        return _Resolution(
+            None, tuple(unique.values()), False,
+            path_reason or "找到多个内容不同的兼容候选，暂不选择",
+        )
+
+    def _narrow_by_loader_paths(
+        self, candidates: list[ElfInfo], source: ElfInfo
+    ) -> tuple[list[ElfInfo], str | None]:
+        """用已知 RPATH/RUNPATH 缩小候选，不模拟动态加载器的完整优先级。"""
+        entries = [entry for value in (*source.rpath, *source.runpath) for entry in value.split(":")]
+        if not entries:
+            return candidates, None
+        origin = source.path.parent
+        allowed: list[Path] = []
+        unresolved = False
+        for entry in entries:
+            if not entry:
+                continue
+            if "$ORIGIN" in entry:
+                allowed.append((origin / entry.replace("$ORIGIN", ".")).resolve())
+            elif entry.startswith("/"):
+                allowed.append(Path(entry).resolve())
+            else:
+                # 不把相对路径解释成宿主机 cwd；保留全量候选并记录限制。
+                unresolved = True
+        if not allowed:
+            return candidates, "RPATH/RUNPATH 存在但路径变量无法解析" if unresolved else None
+        narrowed = [info for info in candidates if any(_inside(info.path, root) for root in allowed)]
+        if narrowed:
+            return narrowed, "候选已按 RPATH/RUNPATH/$ORIGIN 缩小"
+        return [], "候选不在源 ELF 的 RPATH/RUNPATH/$ORIGIN 范围内"
 
 
 def _inside(path: Path, root: Path) -> bool:
