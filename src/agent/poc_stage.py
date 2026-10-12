@@ -27,7 +27,7 @@ class PocStageAdapter:
         findings: list[dict[str, Any]],
         artifact_directory: Path,
     ) -> str:
-        if not findings:
+        if not findings or any(item.get("status") != "confirmed" for item in findings):
             raise PocStageError("没有 confirmed finding，跳过外部 PoC 阶段")
         context = json.dumps({
             "target": str(target), "cwe": cwe_id,

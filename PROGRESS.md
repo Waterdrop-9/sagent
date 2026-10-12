@@ -56,6 +56,9 @@
 - `server` 真实联调返回 3 个 finding、11 个函数模型和 3 个实际 paths 查询；本地核验结果为 `inconclusive`，原因包括未知攻击面、未加载依赖、跨函数路径缺失和部分模型无证据。这是预期门禁行为。
 - 真实联调产物已归档到 `tests/20261012_01_覆盖门禁_r01/产物/真实server联调_r01/`，不再只留在 `/private/tmp`。
 - 新增 `tests/20261012_01_覆盖门禁_r01/`，验证参数级覆盖、地址别名、报告契约、证据代理、产物恢复和 PoC prompt 排除。
+- PoC 阶段接好：新建仓库内专用模板 `prompts/poc-stage.md`（弃用外部模板），`config.toml(.example)` 的 `[poc].prompt_file` 改为相对路径；模板契约测试更新后通过。
+- 新增 `tests/20261012_02_PoC阶段_r01/`：fake OpenCode 端到端验证 PoC 三件套落盘、manifest 结构、cwd 与 skipped 分支；confirmed fixture（真实 evidenceID）通过证据门禁；真实 OpenCode PoC 请求成功生成静态审计材料，`executed: false`。
+- 修复运行时缺陷：`_CliRuntime.run` 把过期的 `PWD` 环境变量修正为实际 cwd（opencode 项目发现依赖 `PWD`，不一致会报 `Model unavailable`），并加回归测试。
 
 ## 暂缓项
 

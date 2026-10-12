@@ -103,28 +103,48 @@ def main(argv: list[str] | None = None) -> int:
                         if finding.get("status") == "confirmed"
                     ]
                     if poc_adapter and confirmed_findings:
+                        poc_directory = directory / "poc"
+                        poc_directory.mkdir(parents=True, exist_ok=True)
                         try:
                             poc_prompt = poc_adapter.build_prompt(
-                                context.root_path, args.cwe, confirmed_findings, directory
+                                context.root_path, args.cwe, confirmed_findings, poc_directory
+                            )
+                            (poc_directory / "request.md").write_text(
+                                poc_prompt, encoding="utf-8"
                             )
                             poc_request = AgentRequest(
                                 system_prompt="", user_prompt=poc_prompt, mcp_config=config_path,
-                                cwd=directory, model=config.agent.model,
+                                cwd=poc_directory, model=config.agent.model,
                                 provider=config.agent.provider, base_url=config.agent.base_url,
                                 environment=agent_environment(config.agent),
                             )
                             poc_response = runtime.run(poc_request)
-                            poc_directory = directory / "poc"
-                            poc_directory.mkdir(parents=True, exist_ok=True)
-                            (poc_directory / "external-stage-response.md").write_text(
+                            (poc_directory / "response.md").write_text(
                                 poc_response.text, encoding="utf-8"
                             )
+                            write_json(poc_directory / "manifest.json", {
+                                "stage": "poc",
+                                "runtime": poc_response.runtime,
+                                "findingCount": len(confirmed_findings),
+                                "findingIDs": [
+                                    f"{item['binaryID']}/{item['functionID']}"
+                                    for item in confirmed_findings
+                                ],
+                                "request": "request.md",
+                                "response": "response.md",
+                                "executed": False,
+                            })
                             report["poc"] = {
                                 "status": "generated",
                                 "directory": str(poc_directory),
                                 "findingCount": len(confirmed_findings),
                             }
                         except (AgentRuntimeError, PocStageError) as exc:
+                            write_json(poc_directory / "manifest.json", {
+                                "stage": "poc", "status": "failed",
+                                "findingCount": len(confirmed_findings),
+                                "error": str(exc), "executed": False,
+                            })
                             report["poc"] = {
                                 "status": "failed", "reason": str(exc),
                                 "findingCount": len(confirmed_findings),

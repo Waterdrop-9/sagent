@@ -16,6 +16,7 @@ from agent.coverage import AnalysisCoverageLedger, SurfaceRecord, ledger_from_re
 from agent.models import FunctionSecurityModel, PathQueryRecord
 from agent.poc_stage import PocStageAdapter
 from agent.plugins import Cwe78Plugin, plugin_for_cwe, supported_cwes
+from agent.runtime import AgentRequest, OpenCodeRuntime
 
 
 class CoverageTests(unittest.TestCase):
@@ -101,17 +102,40 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('"confidence": "candidate', Cwe78Plugin().system_prompt)
 
     def test_poc_stage_adapter_only_accepts_confirmed_findings(self):
-        prompt_file = Path('/Users/xpf/Desktop/二进制/vulnhunter_v2_local/config/assistant/AGENTS.md.template')
-        if not prompt_file.is_file():
-            self.skipTest('外部 PoC 阶段模板不在当前机器')
-        adapter = PocStageAdapter(prompt_file)
+        adapter = PocStageAdapter(ROOT / 'prompts/poc-stage.md')
         prompt = adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [
             {'status': 'confirmed', 'binaryID': 'b', 'functionID': 'f', 'evidenceIDs': ['ev']}
         ], Path('/tmp/artifacts'))
-        self.assertIn('6. PoC 生成', prompt)
-        self.assertIn('confirmed', prompt)
+        # 模板契约：只处理 confirmed、引用已有 evidenceID、生成静态审计材料、
+        # 写入当前 poc/ 工作目录、保持 executed=false，不重判漏洞或重发现 source/sink。
+        self.assertIn('只处理 confirmed finding', prompt)
+        self.assertIn('只引用 finding 里已有的 evidenceIDs', prompt)
+        self.assertIn('人工验证步骤', prompt)
+        self.assertIn('/tmp/artifacts', prompt)
+        self.assertIn('executed 保持 false', prompt)
+        self.assertIn('不重新发现 source/sink', prompt)
+        self.assertIn('不做覆盖账本判定', prompt)
+        self.assertNotIn('6. PoC 生成', prompt)
         with self.assertRaises(ValueError):
             adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
+        with self.assertRaises(ValueError):
+            adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [
+                {'status': 'candidate', 'binaryID': 'b', 'functionID': 'f', 'evidenceIDs': ['ev']}
+            ], Path('/tmp/artifacts'))
+
+    def test_poc_prompt_runs_through_opencode_runtime(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / 'opencode-fake'
+            fake.write_text('#!/bin/sh\nprintf "poc response from opencode\\n"\n')
+            fake.chmod(0o755)
+            runtime = OpenCodeRuntime(executable=str(fake), timeout=5)
+            response = runtime.run(AgentRequest(
+                system_prompt='', user_prompt='confirmed finding poc', cwd=Path(tmp),
+                model='model', provider='provider', mcp_config=None,
+            ))
+        self.assertEqual(response.runtime, 'opencode')
+        self.assertEqual(response.text, 'poc response from opencode')
+        self.assertIn('confirmed finding poc', response.command)
 
 
 class ArtifactTests(unittest.TestCase):

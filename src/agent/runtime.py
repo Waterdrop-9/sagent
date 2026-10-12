@@ -79,6 +79,10 @@ class _CliRuntime:
         env.update(self.environment)
         if request.environment:
             env.update(request.environment)
+        if request.cwd is not None:
+            # 调用方 shell 可能携带过期的 PWD（指向工作区根而非实际 cwd）；
+            # opencode 等项目发现依赖 PWD，不一致时读不到 cwd/.opencode 下的配置。
+            env["PWD"] = str(Path(request.cwd).resolve())
         try:
             completed = subprocess.run(
                 command,
