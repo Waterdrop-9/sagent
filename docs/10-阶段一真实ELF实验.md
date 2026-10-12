@@ -121,7 +121,7 @@ CLI 会拒绝缺少 `findings`、`unresolved` 或 `coverage` 的输出，也会�
 
 ## 本地产物复核
 
-2026-10-12 使用同一次真实响应写入本地运行目录后，Sagent 重新核验得到：
+2026-10-12 使用同一次真实响应写入 [`tests/20261012_01_覆盖门禁_r01/产物/真实server联调_r01/`](../tests/20261012_01_覆盖门禁_r01/产物/真实server联调_r01/) 后，Sagent 重新核验得到：
 
 - 3 条 `path_found` 查询，按解析后的 sink 地址与外部函数模型匹配；
 - 11 个函数模型，其中 Agent 使用的 `sink_wrapper`、`validator` 和对象形式 `propagationMap` 被归一化为内部模型；
