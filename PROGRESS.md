@@ -65,6 +65,7 @@
 - 使用手册更新：`部署与使用手册.md` §5 补完整产物目录树（run 级账目与 `poc/` 交付物）和"如何查看结果"四步顺序（report.json 结论 → 覆盖账本 → 原始证据 → PoC 交付物），并修正已过时的 PoC 段落。
 - code review 清理技术债：PoC 外部调用补全开始/结束/失败日志；`poc-manifest.json` 成功/失败形态统一（`files` 恒存在、失败为空列表 + `error`）；术语统一为"独立的 PoC 阶段"（去掉"外部"）；`{created_at}` 占位符改填真实时间戳；模板交付物命名参数化 `<functionID>.<CWE编号>.md/.py`（`{cwe_id}` 跟随 `--cwe`）；`docs/11` 列入 `docs/文档索引.md`；PWD 回归测试移植进版本库（tracked `tests/20261012_01_覆盖门禁_r01/test_workflow.py` 的 `RuntimeEnvTests`）。清理后真实 PoC 复跑成功（`run-d4832cfc3a71`）。
 - `--cwe` 默认跑全部 CWE：默认值改为 `all`，一次运行依次执行全部支持的 CWE（每个 CWE 一个独立 `run-<id>`，`report.json` 记录 `cwe` 字段）；只想跑单个类型时显式传 `--cwe CWE-78`。顺带修复 `MarkdownCwePlugin.build_user_prompt` 用 `str.format` 填充导致模板里 C 代码字面花括号报 `KeyError` 的问题（改为字面替换 `{target}`/`{goal}`）。r02 新增"无 `--cwe` 默认跑全部 CWE"端到端测试。
+- TaintSage 论文精读与三份方案落档：用户提供 ICSE 2027 论文 PDF，精读卡入 `docs/12`（paper card 全 16 节，audit 通过：22 PASS、0 ERROR）；`docs/13` TaintSage 接入方案（P0 source 识别增强与四类证据标注 → P1 结构化状态抽象与缓存 → P2 Juliet 基准 → P3 RDC 物化；docs/09「不引入 TaintSage state cache」边界按用户要求更新）；`docs/14` 攻击面侦查阶段方案（现状核实：攻击面分析已存在但折叠在各 CWE 任务内，缺独立阶段/持久化产物/跨 CWE 复用/无攻击面门禁；补齐=阶段 0 独立侦查 + state/attack-surface.json + 网络攻击面门禁 skipped_no_attack_surface）；`docs/15` 真实固件测试方案（KARONTE 同源样本 + CVE 对照评测，六步技术路径与三个实验目录）。`docs/文档索引.md` 同步。
 
 ## 暂缓项
 
