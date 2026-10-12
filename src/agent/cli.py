@@ -124,6 +124,12 @@ def main(argv: list[str] | None = None) -> int:
                             (directory / "poc-response.md").write_text(
                                 poc_response.text, encoding="utf-8"
                             )
+                            # 自动清点 poc/ 里的交付物（只数普通文件），
+                            # 让 manifest 成为产物索引：查看结果时不用翻目录。
+                            poc_files = sorted(
+                                path.name for path in poc_directory.iterdir()
+                                if path.is_file()
+                            )
                             write_json(directory / "poc-manifest.json", {
                                 "stage": "poc",
                                 "runtime": poc_response.runtime,
@@ -134,12 +140,14 @@ def main(argv: list[str] | None = None) -> int:
                                 ],
                                 "request": "poc-request.md",
                                 "response": "poc-response.md",
+                                "files": poc_files,
                                 "executed": False,
                             })
                             report["poc"] = {
                                 "status": "generated",
                                 "directory": str(poc_directory),
                                 "findingCount": len(confirmed_findings),
+                                "files": poc_files,
                             }
                         except (AgentRuntimeError, PocStageError) as exc:
                             write_json(directory / "poc-manifest.json", {

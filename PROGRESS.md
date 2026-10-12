@@ -60,7 +60,9 @@
 - 新增 `tests/20261012_02_PoC阶段_r01/`：fake OpenCode 端到端验证 PoC 落盘、manifest 结构、cwd 与 skipped 分支；confirmed fixture（真实 evidenceID）通过证据门禁；真实 OpenCode PoC 请求成功生成静态审计材料，`executed: false`。
 - 修复运行时缺陷：`_CliRuntime.run` 把过期的 `PWD` 环境变量修正为实际 cwd（opencode 项目发现依赖 `PWD`，不一致会报 `Model unavailable`），并加回归测试。
 - PoC 产物布局收紧：request/response/manifest 移到 run 目录顶层（`poc-request.md`/`poc-response.md`/`poc-manifest.json`），`poc/` 里只保留模型生成的 PoC 报告和验证脚本；`OpenCodeRuntime` 运行后清理空的 `.opencode/` 目录；真实请求按新布局复跑成功。
-- PoC 阶段借鉴 vulnhunter 产出验证脚本：每个 confirmed finding 除 8 小节报告外再生成可运行的 `<functionID>.CWE-78.poc.py`（命令行参数、证据出处注释、默认无害命令、超时与异常处理、仅供授权隔离环境人工执行）；真实请求已验证，`executed: false`。
+- PoC 阶段借鉴 vulnhunter 产出验证脚本：每个 confirmed finding 除 8 小节报告外再生成可运行的 `<functionID>.CWE-78.py`（命令行参数、证据出处注释、默认无害命令、超时与异常处理、仅供授权隔离环境人工执行）；真实请求已验证，`executed: false`。
+- PoC 命名与产物索引：交付物命名去掉 `.poc`（`<functionID>.CWE-78.md`/`.py`）；CLI 在 PoC 阶段结束后自动清点 `poc/` 文件写入 `poc-manifest.json` 的 `files` 字段，作为交付物索引；真实请求按最终命名复跑成功（`run-5e3cec028963`，旧轮次归档到 `历史轮次/`）。
+- 使用手册更新：`部署与使用手册.md` §5 补完整产物目录树（run 级账目与 `poc/` 交付物）和"如何查看结果"四步顺序（report.json 结论 → 覆盖账本 → 原始证据 → PoC 交付物），并修正已过时的 PoC 段落。
 
 ## 暂缓项
 
