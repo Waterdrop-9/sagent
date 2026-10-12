@@ -49,6 +49,14 @@
 3. 按同一插件契约增加 CWE-134，再评估 CWE-190、CWE-606 所需的数值状态。
 4. 按 `docs/03` 验证场景补充依赖检索实验：同名库冲突、断链和同内容库共享身份。
 
+## 2026-10-12 恢复后进展
+
+- 暂缓 PoC：CWE-78 运行时不再加载 `poc.md`，流程截止 finding、覆盖账本和人工复核。
+- 报告门禁已接入本地产物：Agent 原文、Ghidra/paths 原始 JSONL、候选、查询、稀疏 evidence 和 `coverage-ledger.json` 分开保存；工具响应通过代理获得 `evidenceID`。
+- 覆盖账本现在逐项检查攻击面、函数模型、confirmed sink 的每个敏感参数、工具查询状态、预算和 unresolved；Agent 自述的 `pathToolResult` 不会被视为实际查询记录。
+- `server` 真实联调返回 3 个 finding、11 个函数模型和 3 个实际 paths 查询；本地核验结果为 `inconclusive`，原因包括未知攻击面、未加载依赖、跨函数路径缺失和部分模型无证据。这是预期门禁行为。
+- 新增 `tests/20261012_01_覆盖门禁_r01/`，验证参数级覆盖、地址别名、报告契约、证据代理、产物恢复和 PoC prompt 排除。
+
 ## 暂缓项
 
 - 固件解包（binwalk 适配器）、压缩包输入。

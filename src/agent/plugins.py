@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -62,7 +63,6 @@ class Cwe78Plugin:
                 "candidate-models.md",
                 "propagation-review.md",
                 "false-positive-review.md",
-                "poc.md",
             )
         )
         self.system_prompt = "\n\n".join(common_prompts + phase_prompts)
@@ -115,6 +115,9 @@ class Cwe78Plugin:
         model: str | None = None,
         api_key: str | None = None,
         base_url: str | None = None,
+        artifact_dir: Path | None = None,
+        analysis_group_id: str = "",
+        binary_id: str = "",
     ) -> dict[str, object]:
         """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。"""
 
@@ -172,6 +175,17 @@ class Cwe78Plugin:
                 "command": path_command,
                 "environment": {"PYTHONPATH": str(source_root.resolve())},
             }
+        if artifact_dir:
+            for name in claude_servers:
+                server = claude_servers[name]
+                command = [server["command"], *server["args"]]
+                proxy = [sys.executable, "-m", "agent.evidence_proxy",
+                         "--directory", str(artifact_dir.resolve()), "--server", name,
+                         "--group-id", analysis_group_id, "--binary-id", binary_id, "--", *command]
+                server.update(command=proxy[0], args=proxy[1:])
+                server["env"]["PYTHONPATH"] = str(source_root.resolve())
+                opencode_servers[name]["command"] = proxy
+                opencode_servers[name]["environment"]["PYTHONPATH"] = str(source_root.resolve())
         return {
             "claude": {"mcpServers": claude_servers},
             "opencode": {

@@ -49,6 +49,54 @@ class FunctionSecurityModel:
             raise ValueError(f"未知函数模型状态: {self.status}")
         if self.confidence not in {"low", "medium", "high"}:
             raise ValueError(f"未知函数模型置信度: {self.confidence}")
+        if not self.binary_id or not self.function_id:
+            raise ValueError("函数模型需要 binaryID 和 functionID")
+        if not set(self.roles) <= {"source", "sink", "sanitizer", "wrapper", "parser", "auth_boundary"}:
+            raise ValueError("未知函数角色")
+        for param in (*self.source_params, *self.sink_params):
+            if type(param) is not int or param < 0:
+                raise ValueError("参数编号必须是非负整数")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FunctionSecurityModel:
+        """恢复紧凑模型；不从 finding 状态推断函数角色。"""
+        roles: list[str] = []
+        role_map = {
+            "source": "source", "sink": "sink", "sink_wrapper": "sink",
+            "sink_candidate": "sink", "propagation": "wrapper",
+            "validator": "sanitizer", "sanitizer": "sanitizer",
+            "wrapper": "wrapper", "parser": "parser", "auth_boundary": "auth_boundary",
+        }
+        for role in data.get("roles", ()):
+            canonical = role_map.get(role)
+            if canonical and canonical not in roles:
+                roles.append(canonical)
+            elif not canonical:
+                raise ValueError(f"未知函数角色: {role}")
+        raw_map = data.get("propagationMap", ())
+        if raw_map is None:
+            raw_map = ()
+        if isinstance(raw_map, dict):
+            raw_map = [
+                {"fromParam": key, "toFunction": value, "toParam": None}
+                for key, value in raw_map.items()
+            ]
+        if not isinstance(raw_map, list):
+            raise ValueError("propagationMap 必须是数组或对象")
+        return cls(
+            binary_id=data["binaryID"], function_id=data["functionID"],
+            function_name=data.get("functionName", data["functionID"]),
+            function_address=data.get("functionAddress"), roles=tuple(roles),
+            cwe_types=tuple(data.get("cweTypes", ())),
+            source_params=tuple(data.get("sourceParams", ())), sink_params=tuple(data.get("sinkParams", ())),
+            propagation_map=tuple(PropagationMapping(
+                from_param=p["fromParam"], to_function=p["toFunction"],
+                to_param=p.get("toParam"), callsite_address=p.get("callsiteAddress"),
+                evidence_ids=tuple(p.get("evidenceIDs", ())),
+            ) for p in raw_map),
+            status=data.get("status", "candidate"), confidence=data.get("confidence", "low"),
+            evidence_ids=tuple(data.get("evidenceIDs", ())), limitations=tuple(data.get("limitations", ())),
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {

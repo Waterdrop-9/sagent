@@ -24,6 +24,7 @@ class AnalysisGroupContext:
     components: tuple[dict[str, object], ...]
     dependencies: tuple[dict[str, object], ...]
     pending_dependencies: int
+    root_path: Path
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -43,17 +44,23 @@ def build_contexts(
         groups = build_analysis_groups(input_path, dependency_roots)
     except ElfError as exc:
         raise AnalysisContextError(str(exc)) from exc
-    return tuple(_compact_group(group) for group in groups)
+    contexts = tuple(_compact_group(group) for group in groups)
+    if not contexts:
+        raise AnalysisContextError("输入中没有可分析的 ELF 根目标")
+    return contexts
 
 
 def render_contexts(contexts: tuple[AnalysisGroupContext, ...]) -> str:
     """渲染短 JSON 摘要；不放入反编译文本和完整工具产物。"""
 
-    return json.dumps(
+    text = json.dumps(
         {"analysisGroups": [context.to_dict() for context in contexts]},
         ensure_ascii=False,
         indent=2,
     )
+    if len(text.encode()) > 32 * 1024:
+        raise AnalysisContextError("分析组摘要超过 32 KiB，请缩小输入或显式依赖范围")
+    return text
 
 
 def _compact_group(group: AnalysisGroup) -> AnalysisGroupContext:
@@ -100,4 +107,5 @@ def _compact_group(group: AnalysisGroup) -> AnalysisGroupContext:
         components=tuple(components),
         dependencies=tuple(dependencies),
         pending_dependencies=pending,
+        root_path=group.root.path.resolve(),
     )
