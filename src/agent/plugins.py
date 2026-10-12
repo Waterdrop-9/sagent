@@ -45,7 +45,7 @@ class MarkdownCwePlugin:
         root = prompt_root or Path(__file__).resolve().parents[2] / "prompts"
         if not self.name or not self.cwe_id:
             raise ValueError("CWE 插件必须声明 cwe_id 和 name")
-        self.prompt_root = root / self.name
+        self.prompt_file = root / f"{self.name}.md"
         common_root = root / "common"
         common_prompts = tuple(
             self._read_file(common_root / name)
@@ -57,21 +57,8 @@ class MarkdownCwePlugin:
                 "report-schema.md",
             )
         )
-        phase_prompts = tuple(
-            self._read_file(self.prompt_root / name)
-            for name in (
-                "system.md",
-                "attack-surface.md",
-                "candidate-models.md",
-                "propagation-review.md",
-                "false-positive-review.md",
-            )
-        )
-        self.system_prompt = "\n\n".join(common_prompts + phase_prompts)
-        self.task_prompt = self._read_prompt("task.md")
-
-    def _read_prompt(self, name: str) -> str:
-        return self._read_file(self.prompt_root / name)
+        self.task_prompt = self._read_file(self.prompt_file)
+        self.system_prompt = "\n\n".join(common_prompts + (self.task_prompt,))
 
     @staticmethod
     def _read_file(path: Path) -> str:

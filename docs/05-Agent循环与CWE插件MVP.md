@@ -25,7 +25,7 @@ Agent 负责理解目标、规划查询、调用工具、解释结果和形成�
 代码位于 `src/agent/`：
 
 - `runtime.py`：统一 `AgentRuntime` interface，以及 Claude Code 和 OpenCode CLI adapter。
-- `plugins.py`：CWE 插件 interface 和 CWE-78 插件；插件从 `prompts/common/`、`prompts/cwe-78/` 读取阶段化规则和任务模板，并生成 GhidraMCP 配置。
+- `plugins.py`：CWE 插件 interface 和首批 CWE 插件；插件从 `prompts/common/` 和每个 `prompts/cwe-*.md` 读取完整规则，并生成 GhidraMCP 配置。
 - `cli.py`：选择底座、加载插件、生成 MCP 配置并启动 Agent。
 
 调用示例：
@@ -43,12 +43,15 @@ Prompt 文件位于：
 
 ```text
 prompts/
-└── cwe-78/
-    ├── system.md
-    └── task.md
+├── cwe-78.md
+├── cwe-134.md
+├── cwe-190.md
+├── cwe-606.md
+├── cwe-415.md
+└── cwe-416.md
 ```
 
-运行时会校验两个文件存在且非空。`task.md` 使用 `{target}` 和 `{goal}` 两个占位符；新增 CWE 时新增对应目录和 Markdown 文件，不需要把知识写进 Python。
+运行时会校验通用文件和对应 CWE Markdown 存在且非空。CWE 文件使用 `{target}` 和 `{goal}` 两个占位符；新增 CWE 时新增一个 Markdown 文件，不需要把知识写进 Python。
 
 安装 Claude Code 或 OpenCode 并完成其自身认证后，去掉 `--dry-run` 即由真实 Agent 执行；本机未安装对应 CLI 时，程序会明确报错，不会伪造分析结果。
 
@@ -72,9 +75,9 @@ CWE-78 插件要求 Agent 从 `system` 等命令执行 sink 的敏感参数开�
 
 ## 边界
 
-- 反编译、函数和调用关系由外部 GhidraMCP 提供；参数级路径查询后端尚未接入。
+- 反编译、函数和调用关系由外部 GhidraMCP 提供；参数级路径查询通过 `paths` MCP server 接入 angr RDA。
 - GhidraMCP 不等于完整污点分析。参数级污点传播、路径约束和误报复核仍需由后续工具补足。
 - Claude/OpenCode 的 CLI 负责真正的规划和循环；Sagent 不复制它们的 Agent loop。
 - 后续开发默认使用 OpenCode，Claude Code 用于辅助验证；两个底座都通过同一个 `AgentRuntime` 接口接入。
-- 当前只做候选发现，工具证据不足时必须由 Agent 输出 `inconclusive` 或 `unresolved`。
+- 最终 finding 只允许 `confirmed/rejected`；工具证据不足时写入 `unresolved`，不能伪装成 rejected。
 - Claude 和 OpenCode 的配置格式由各自 adapter 负责，避免业务层绑定具体底座。

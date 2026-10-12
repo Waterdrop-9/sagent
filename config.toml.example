@@ -19,4 +19,4 @@ timeout = 3600
 # 外部 PoC 阶段默认关闭。启用时只读取 prompt，不执行生成的 PoC。
 # [poc]
 # enabled = false
-# prompt_dir = "/path/to/external/config/foolish"
+# prompt_file = "/path/to/external/config/assistant/AGENTS.md.template"

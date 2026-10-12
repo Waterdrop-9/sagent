@@ -25,18 +25,15 @@ prompts/
 │   ├── source-sink-model.md
 │   ├── coverage-rules.md
 │   └── report-schema.md
-├── cwe-78/
-│   ├── attack-surface.md
-│   ├── candidate-models.md
-│   ├── propagation-review.md
-│   ├── false-positive-review.md
-│   └── poc.md
-├── cwe-134/
-├── cwe-190/
-└── cwe-606/
+├── cwe-78.md
+├── cwe-134.md
+├── cwe-190.md
+├── cwe-606.md
+├── cwe-415.md
+└── cwe-416.md
 ```
 
-每个文件只描述一个阶段的规则和输出要求。通用 prompt 规定证据、覆盖和状态语义；CWE prompt 规定该漏洞类型的 source、sink、sanitizer、约束和报告字段。Prompt 中的知识不替代工具事实。
+每个 CWE 使用一个完整 Markdown 文件，集中描述攻击面、候选模型、传播/生命周期复核、误报排除和输出要求。通用 prompt 规定证据、覆盖和状态语义；CWE 文件吸收外部问题清单的关键检查项，再加入 Sagent 的工具和证据规则。Prompt 中的知识不替代工具事实。
 
 ## 阶段一：攻击面侦查
 
@@ -204,7 +201,7 @@ source 可控性
 | CWE-415 | 外部输入触发的错误路径和资源生命周期 | `free`、`delete`、析构和清理分支 | 同一分配实例、别名、互斥路径和引用计数 |
 | CWE-416 | 外部输入触发的对象生命周期和回调 | 释放后的读写、解引用、虚调用和外部调用 | 分配实例、别名、置空、重分配和线程同步 |
 
-PoC prompt 由外部 foolish 适配器接入，路径通过 `poc.prompt_dir` 配置。只有最终 `confirmed` findings 才能进入 PoC 阶段；适配器只保存外部 Agent 响应，不执行生成的代码，也不把 candidate/unresolved 传入 PoC。
+PoC 阶段通过外部引擎的 assistant 阶段模板接入，路径通过 `poc.prompt_file` 配置。漏洞分析问题序列不参与此阶段。只有最终 `confirmed` findings 才能进入 PoC 阶段；适配器只保存外部 Agent 响应，不执行生成的代码，也不把 candidate/unresolved 传入 PoC。
 
 ## 与实现的边界
 

@@ -14,7 +14,7 @@ from agent.analysis_context import build_contexts
 from agent.artifacts import ArtifactStore
 from agent.coverage import AnalysisCoverageLedger, SurfaceRecord, ledger_from_report
 from agent.models import FunctionSecurityModel, PathQueryRecord
-from agent.external_poc import ExternalPocAdapter
+from agent.poc_stage import PocStageAdapter
 from agent.plugins import Cwe78Plugin, plugin_for_cwe, supported_cwes
 
 
@@ -100,15 +100,16 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('CWE-78 PoC 规则', Cwe78Plugin().system_prompt)
         self.assertNotIn('"confidence": "candidate', Cwe78Plugin().system_prompt)
 
-    def test_external_poc_adapter_only_accepts_confirmed_findings(self):
-        prompt_dir = Path('/Users/xpf/Desktop/二进制/vulnhunter_v2_local/config/foolish')
-        if not prompt_dir.is_dir():
-            self.skipTest('外部 prompt 目录不在当前机器')
-        adapter = ExternalPocAdapter(prompt_dir)
+    def test_poc_stage_adapter_only_accepts_confirmed_findings(self):
+        prompt_file = Path('/Users/xpf/Desktop/二进制/vulnhunter_v2_local/config/assistant/AGENTS.md.template')
+        if not prompt_file.is_file():
+            self.skipTest('外部 PoC 阶段模板不在当前机器')
+        adapter = PocStageAdapter(prompt_file)
         prompt = adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [
             {'status': 'confirmed', 'binaryID': 'b', 'functionID': 'f', 'evidenceIDs': ['ev']}
         ], Path('/tmp/artifacts'))
-        self.assertIn('03 搜查命令注入', prompt)
+        self.assertIn('6. PoC 生成', prompt)
+        self.assertIn('confirmed', prompt)
         with self.assertRaises(ValueError):
             adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
 

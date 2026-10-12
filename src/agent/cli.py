@@ -14,7 +14,7 @@ from .analysis_context import AnalysisContextError, build_contexts, render_conte
 from .agent_report import AgentReportError, MAX_REPORT_BYTES, parse_report
 from .artifacts import ArtifactStore, write_json
 from .config import ConfigError, agent_environment, load_config, load_ghidra_config
-from .external_poc import ExternalPocAdapter, ExternalPocError
+from .poc_stage import PocStageAdapter, PocStageError
 from .plugins import plugin_for_cwe, supported_cwes, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
 
@@ -46,9 +46,9 @@ def main(argv: list[str] | None = None) -> int:
         poc_requested = args.poc or config.poc.enabled
         poc_adapter = None
         if poc_requested:
-            if config.poc.prompt_dir is None:
-                raise ConfigError("启用 PoC 阶段需要配置 poc.prompt_dir")
-            poc_adapter = ExternalPocAdapter(config.poc.prompt_dir)
+            if config.poc.prompt_file is None:
+                raise ConfigError("启用 PoC 阶段需要配置 poc.prompt_file")
+            poc_adapter = PocStageAdapter(config.poc.prompt_file)
         source_root = Path(__file__).resolve().parents[1]
         reports = []
         failed = False
@@ -98,10 +98,14 @@ def main(argv: list[str] | None = None) -> int:
                     (directory / "raw").mkdir(exist_ok=True)
                     (directory / "raw" / "agent.txt").write_text(response.text, encoding="utf-8")
                     report = store.finalize(parse_report(response.text))
-                    if poc_adapter and report["findings"]:
+                    confirmed_findings = [
+                        finding for finding in report["findings"]
+                        if finding.get("status") == "confirmed"
+                    ]
+                    if poc_adapter and confirmed_findings:
                         try:
                             poc_prompt = poc_adapter.build_prompt(
-                                context.root_path, args.cwe, report["findings"], directory
+                                context.root_path, args.cwe, confirmed_findings, directory
                             )
                             poc_request = AgentRequest(
                                 system_prompt="", user_prompt=poc_prompt, mcp_config=config_path,
@@ -118,12 +122,12 @@ def main(argv: list[str] | None = None) -> int:
                             report["poc"] = {
                                 "status": "generated",
                                 "directory": str(poc_directory),
-                                "findingCount": len(report["findings"]),
+                                "findingCount": len(confirmed_findings),
                             }
-                        except (AgentRuntimeError, ExternalPocError) as exc:
+                        except (AgentRuntimeError, PocStageError) as exc:
                             report["poc"] = {
                                 "status": "failed", "reason": str(exc),
-                                "findingCount": len(report["findings"]),
+                                "findingCount": len(confirmed_findings),
                             }
                     elif poc_adapter:
                         report["poc"] = {
@@ -135,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
                     report["artifactDirectory"] = str(directory)
                     reports.append(report)
                     LOG.info("分析结束 group=%s status=%s", context.analysis_group_id, report["analysisStatus"])
-                except (AgentRuntimeError, AgentReportError, ExternalPocError, OSError, ValueError) as exc:
+                except (AgentRuntimeError, AgentReportError, PocStageError, OSError, ValueError) as exc:
                     failed = True
                     error = {"analysisGroupID": context.analysis_group_id, "analysisStatus": "inconclusive",
                              "error": str(exc), "artifactDirectory": str(directory)}

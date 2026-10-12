@@ -63,7 +63,9 @@ class FunctionSecurityModel:
         roles: list[str] = []
         role_map = {
             "source": "source", "sink": "sink", "sink_wrapper": "sink",
-            "sink_candidate": "sink", "propagation": "wrapper",
+            "sinkWrapper": "sink", "sink_candidate": "sink", "sinkCandidate": "sink",
+            "propagation": "wrapper",
+            "sourceWrapper": "wrapper", "authBoundary": "auth_boundary",
             "validator": "sanitizer", "sanitizer": "sanitizer",
             "wrapper": "wrapper", "parser": "parser", "auth_boundary": "auth_boundary",
         }

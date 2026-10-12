@@ -129,3 +129,21 @@ CLI 会拒绝缺少 `findings`、`unresolved` 或 `coverage` 的输出，也会�
 - Agent 自报的 `pathToolResult` 没有生成查询记录，只有 paths MCP 代理实际保存的 JSONL 才能进入账本。
 
 这次复核说明 `path_found` 可以成为证据，但不能单独把 finding 提升为 confirmed，也不能把未覆盖范围当作安全。
+
+## 长 Prompt、静态工具和 PoC 门禁复跑
+
+2026-10-12 重新整理 CWE prompt 后，每类 CWE 使用一个完整 Markdown 文件，CWE-78 文件约 150 行，包含外部问题清单中的攻击面、检查步骤、判定、覆盖和反作弊规则，并叠加 Sagent 的 GhidraMCP/evidence 约束。
+
+先运行静态路径后端健康检查：
+
+```bash
+PYTHONPATH=src python3 scripts/static_analysis/check_path_backend.py \
+  --python /tmp/sagent-angr-venv/bin/python \
+  --binary data/01_simple_demo/server \
+  --sink-function popen \
+  --max-depth 4 --max-nodes 200
+```
+
+结果为 `path_found`，sink 为 `popen@0x401380`，返回 1 条调用点定义链，并保留 RDA 限制。
+
+随后使用 `--poc` 复跑真实 Agent。结果为 1 条 `rejected`（固定 `system` 常量路径）、0 条 `confirmed`、整轮 `analysisStatus=inconclusive`；PoC 状态为 `skipped_no_confirmed_findings`，没有调用 PoC Agent，也没有生成或执行 PoC。候选命令注入路径和跨库路径进入 `unresolved`。
