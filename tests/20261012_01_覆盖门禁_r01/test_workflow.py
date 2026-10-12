@@ -116,6 +116,17 @@ class ReportTests(unittest.TestCase):
         self.assertIn('不重新发现 source/sink', prompt)
         self.assertIn('不做覆盖账本判定', prompt)
         self.assertNotIn('6. PoC 生成', prompt)
+        # vh 报告叙事结构（借鉴 vulnhunter 的 PoC prompt 思想）：
+        # 基本信息/触发条件/输入形态(PoC 骨架)/调用路径/关键参数/证据引用/限制与不确定性。
+        self.assertIn('基本信息', prompt)
+        self.assertIn('触发条件', prompt)
+        self.assertIn('输入形态', prompt)
+        self.assertIn('调用路径', prompt)
+        self.assertIn('关键参数', prompt)
+        self.assertIn('证据引用', prompt)
+        self.assertIn('限制与不确定性', prompt)
+        # poc/ 目录只写 PoC 报告文件。
+        self.assertIn('poc/ 目录里只写 PoC 报告文件', prompt)
         with self.assertRaises(ValueError):
             adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
         with self.assertRaises(ValueError):

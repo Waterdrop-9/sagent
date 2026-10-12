@@ -208,6 +208,11 @@ class OpenCodeRuntime(_CliRuntime):
         finally:
             if previous is None:
                 config_path.unlink(missing_ok=True)
+                # 配置是我们写进去的：连空目录一起清掉，保持 cwd（如 poc/）干净。
+                try:
+                    config_dir.rmdir()
+                except OSError:
+                    pass
             else:
                 config_path.write_bytes(previous)
 

@@ -109,7 +109,9 @@ def main(argv: list[str] | None = None) -> int:
                             poc_prompt = poc_adapter.build_prompt(
                                 context.root_path, args.cwe, confirmed_findings, poc_directory
                             )
-                            (poc_directory / "request.md").write_text(
+                            # request/response/manifest 只记流程账目，不落进 poc/，
+                            # 保证 poc/ 里只有模型生成的 PoC 报告。
+                            (directory / "poc-request.md").write_text(
                                 poc_prompt, encoding="utf-8"
                             )
                             poc_request = AgentRequest(
@@ -119,10 +121,10 @@ def main(argv: list[str] | None = None) -> int:
                                 environment=agent_environment(config.agent),
                             )
                             poc_response = runtime.run(poc_request)
-                            (poc_directory / "response.md").write_text(
+                            (directory / "poc-response.md").write_text(
                                 poc_response.text, encoding="utf-8"
                             )
-                            write_json(poc_directory / "manifest.json", {
+                            write_json(directory / "poc-manifest.json", {
                                 "stage": "poc",
                                 "runtime": poc_response.runtime,
                                 "findingCount": len(confirmed_findings),
@@ -130,8 +132,8 @@ def main(argv: list[str] | None = None) -> int:
                                     f"{item['binaryID']}/{item['functionID']}"
                                     for item in confirmed_findings
                                 ],
-                                "request": "request.md",
-                                "response": "response.md",
+                                "request": "poc-request.md",
+                                "response": "poc-response.md",
                                 "executed": False,
                             })
                             report["poc"] = {
@@ -140,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
                                 "findingCount": len(confirmed_findings),
                             }
                         except (AgentRuntimeError, PocStageError) as exc:
-                            write_json(poc_directory / "manifest.json", {
+                            write_json(directory / "poc-manifest.json", {
                                 "stage": "poc", "status": "failed",
                                 "findingCount": len(confirmed_findings),
                                 "error": str(exc), "executed": False,
