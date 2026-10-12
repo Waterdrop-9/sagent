@@ -125,7 +125,7 @@
 
 | # | 想法 | 状态 | 验证方式 | 假设 | 精确增量 | 对照 | 数据 | 指标 | 预算 | 期望观察 | 证伪信号 | 失败模式 | 先行工作 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 状态抽象缓存（首选） | 待立项 | 实验目录 r01：同组多 CWE 下缓存命中率与 unresolved 消解率 | 参数级结构化状态跨函数复用可把跨组件传播纳入账本 | 引入 M_f 风格 ParamInfo⟨idx,taint,cons,aux⟩+缓存 | 无状态抽象现状（基线） | data/01_simple_demo 的 libauth/liblog 边界 + CWE-78 | unresolved 消解率、token/耗时 | 单轮 | 跨组件查询不再 unresolved | 命中率≈0 或误复用导致 finding 错误 | 签名不一致误复用、LLM 状态格式漂移 | TaintSage Table III（+1.34pp、-41.6% token） |
+| 1 | 状态抽象缓存 | 暂缓（用户否决，2026-10-13；docs/13 v1 本轮不做，若 Juliet 基线显示瓶颈在状态复用再单独提案） | 实验目录 r01：同组多 CWE 下缓存命中率与 unresolved 消解率 | 参数级结构化状态跨函数复用可把跨组件传播纳入账本 | 引入 M_f 风格 ParamInfo⟨idx,taint,cons,aux⟩+缓存 | 无状态抽象现状（基线） | data/01_simple_demo 的 libauth/liblog 边界 + CWE-78 | unresolved 消解率、token/耗时 | 单轮 | 跨组件查询不再 unresolved | 命中率≈0 或误复用导致 finding 错误 | 签名不一致误复用、LLM 状态格式漂移 | TaintSage Table III（+1.34pp、-41.6% token） |
 | 2 | source/sink LLM 识别移植 | 待立项 | 人工标注 demo+固件子集，按 Table II 口径算识别精度/覆盖率 | 外部函数 (f,idx) 分类 + rodata top-k 过滤比固定库函数表召回更高 | 识别器升级为「分类+候选+语义过滤」三级 | 现有 prompts/common/source-sink-model.md 固定表 | demo + 1-2 个固件二进制 | 识别精度/覆盖率 | 单轮 | 召回升且精度不降 | 精度崩（LLM 误分类） | rodata 噪声候选过多、token 超支 | TaintSage Table II（三类 CWE 精度 +5~7pp） |
-| 3 | Juliet 评测闭环 | 待立项 | 跑通即验证 | Sagent 缺基准评测；搭 Juliet 编译流水线可测 | 新增基准编译/评测脚本 | 无评测现状 | Juliet CWE-78 子集（剥离符号） | F1/precision/recall | 多轮 | 得到可回归的基线数字 | 编译流水线失败或指标不可复现 | Juliet 编译环境差异、angr 在合成样本上行为不同 | TaintSage Table I 口径 |
+| 3 | Juliet 评测闭环 | 待立项 | 跑通即验证 | Sagent 缺基准评测；搭 Juliet 编译流水线可测 | 新增基准编译/评测脚本 | 无评测现状 | Juliet CWE-78/134/190/606 各 50 对（数据放 `data/juliet/`，剥离符号） | F1/precision/recall | 多轮 | 得到可回归的基线数字 | 编译流水线失败或指标不可复现 | Juliet 编译环境差异、angr 在合成样本上行为不同 | TaintSage Table I 口径 |
 | 4 | 语义提取四类证据标注 | 待立项 | CWE-190 前后对照（论文指出的最难点） | 证据标注后的函数表示降低 LLM 误读隐式检查的概率 | 四类证据标注进 prompts/common | 原始反编译文本 | demo + Juliet CWE-190 子集 | 误读率/F1 | 单轮 | CWE-190 的 source/sink 判定变稳 | 标注本身引入噪声、成本上升 | LLM 证据标注格式不稳定 | TaintSage Table III（F1 -5pp 消融） |

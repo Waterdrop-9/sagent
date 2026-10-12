@@ -59,6 +59,21 @@ def _poc_manifest_base(
     }
 
 
+def _attach_run_log(directory: Path) -> logging.Handler:
+    """把本轮日志追加进 run 目录的 analysis.log，便于事后按轮次排查。"""
+    handler = logging.FileHandler(directory / "analysis.log", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(handler)
+    return handler
+
+
+def _detach_run_log(handler: logging.Handler | None) -> None:
+    if handler is not None:
+        root = logging.getLogger()
+        root.removeHandler(handler)
+        handler.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="二进制静态分析 Agent")
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
@@ -77,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--poc", action="store_true", help="对 confirmed findings 接入独立的 PoC 阶段")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    run_started = time.monotonic()
     args.target = args.target.expanduser().resolve()
     try:
         config = load_config(args.config)
@@ -107,10 +123,12 @@ def main(argv: list[str] | None = None) -> int:
                 prompt = plugin.build_user_prompt(args.goal, context.root_path, render_contexts((context,)))
                 if resume_text:
                     prompt += "\n\n上次运行摘要（继续核验未完成项，不可当作新增工具事实）：\n" + resume_text
+                run_log = None
                 if not args.dry_run:
                     store.initialize(context.to_dict(), context.root_path)
                     if args.resume and (args.resume / "raw").exists():
                         shutil.copytree(args.resume / "raw", directory / "raw")
+                    run_log = _attach_run_log(directory)
                     LOG.info(
                         "开始分析 group=%s cwe=%s target=%s artifacts=%s",
                         context.analysis_group_id, cwe, context.root_path.name, directory,
@@ -129,7 +147,9 @@ def main(argv: list[str] | None = None) -> int:
                         system_prompt=plugin.system_prompt,
                         user_prompt=prompt,
                         mcp_config=config_path,
-                        cwd=Path.cwd(),
+                        # cwd 指向本轮的产物目录：opencode 的项目配置与模型写的文件
+                        # 都落在 cwd 下，指向 run 目录可保证一轮产物自包含、不污染仓库根。
+                        cwd=directory,
                     )
                     if args.dry_run:
                         preview = {"cwe": cwe, "command": runtime.build_command(request),
@@ -140,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
                         print(text)
                         continue
                     try:
+                        analysis_started = time.monotonic()
                         response = runtime.run(request)
                         # 模型原文独立保存，不以规范化报告覆盖它。
                         if len(response.text.encode()) > MAX_REPORT_BYTES:
@@ -192,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
                                     "runtime": poc_response.runtime,
                                     "request": "poc-request.md",
                                     "response": "poc-response.md",
+                                    "usage": poc_response.usage,
                                 })
                                 write_json(directory / "poc-manifest.json", manifest)
                                 report["poc"] = {
@@ -199,9 +221,11 @@ def main(argv: list[str] | None = None) -> int:
                                     "directory": str(poc_directory),
                                     "findingCount": len(confirmed_findings),
                                 }
+                                poc_usage = poc_response.usage or {}
                                 LOG.info(
-                                    "PoC 阶段结束 group=%s 耗时=%.1fs files=%d",
-                                    context.analysis_group_id, time.monotonic() - started, len(poc_files),
+                                    "PoC 阶段结束 group=%s 耗时=%.1fs files=%d tokens_in=%s tokens_out=%s",
+                                    context.analysis_group_id, time.monotonic() - started,
+                                    len(poc_files), poc_usage.get("tokens_input"), poc_usage.get("tokens_output"),
                                 )
                             except (AgentRuntimeError, PocStageError) as exc:
                                 # 失败也写 run 级账目，且字段形状与成功一致（files 为空），
@@ -224,23 +248,42 @@ def main(argv: list[str] | None = None) -> int:
                                 "status": "skipped_no_confirmed_findings",
                                 "findingCount": 0,
                             }
+                        # 开销观测：elapsedSeconds 覆盖分析+PoC 两个阶段的墙钟时间，
+                        # usage 来自底座（opencode 读本地会话库，读不到为 None）。
+                        report["elapsedSeconds"] = round(time.monotonic() - analysis_started, 1)
+                        report["usage"] = response.usage
                         if poc_adapter:
                             write_json(directory / "report.json", report)
                         report["artifactDirectory"] = str(directory)
                         reports.append(report)
+                        usage = response.usage or {}
                         LOG.info(
-                            "分析结束 group=%s cwe=%s status=%s",
+                            "分析结束 group=%s cwe=%s status=%s 耗时=%.1fs tokens_in=%s tokens_out=%s",
                             context.analysis_group_id, cwe, report["analysisStatus"],
+                            report["elapsedSeconds"], usage.get("tokens_input"), usage.get("tokens_output"),
                         )
                     except (AgentRuntimeError, AgentReportError, PocStageError, OSError, ValueError) as exc:
                         failed = True
                         error = {"analysisGroupID": context.analysis_group_id, "cwe": cwe,
                                  "analysisStatus": "inconclusive",
+                                 "elapsedSeconds": round(time.monotonic() - analysis_started, 1),
                                  "error": str(exc), "artifactDirectory": str(directory)}
+                        # 报告解析/校验失败时底座开销仍然存在，一并记账便于事后核算；
+                        # 底座调用本身失败时没有 response，usage 不写。
+                        if "response" in locals():
+                            error["usage"] = response.usage
                         write_json(directory / "error.json", error)
                         reports.append(error)
                         LOG.error("分析失败 group=%s cwe=%s reason=%s", context.analysis_group_id, cwe, exc)
+                    finally:
+                        _detach_run_log(run_log)
         if not args.dry_run:
+            failures = sum(1 for report in reports if "error" in report)
+            LOG.info(
+                "运行全部结束 groups=%d 成功=%d 失败=%d 总耗时=%.1fs",
+                len(reports), len(reports) - failures, failures,
+                time.monotonic() - run_started,
+            )
             print(json.dumps(reports[0] if len(reports) == 1 else {"analysisGroups": reports}, ensure_ascii=False, indent=2))
         return 1 if failed else 0
     except (ConfigError, AnalysisContextError, AgentReportError, OSError, ValueError) as exc:

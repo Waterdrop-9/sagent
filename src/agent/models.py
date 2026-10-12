@@ -51,7 +51,10 @@ class FunctionSecurityModel:
             raise ValueError(f"未知函数模型置信度: {self.confidence}")
         if not self.binary_id or not self.function_id:
             raise ValueError("函数模型需要 binaryID 和 functionID")
-        if not set(self.roles) <= {"source", "sink", "sanitizer", "wrapper", "parser", "auth_boundary"}:
+        if not set(self.roles) <= {
+            "source", "sink", "sanitizer", "wrapper", "parser", "auth_boundary",
+            "allocator", "deallocator",
+        }:
             raise ValueError("未知函数角色")
         for param in (*self.source_params, *self.sink_params):
             if type(param) is not int or param < 0:
@@ -68,6 +71,9 @@ class FunctionSecurityModel:
             "sourceWrapper": "wrapper", "authBoundary": "auth_boundary",
             "validator": "sanitizer", "sanitizer": "sanitizer",
             "wrapper": "wrapper", "parser": "parser", "auth_boundary": "auth_boundary",
+            # 内存生命周期 CWE（415/416）需要区分分配/释放角色。
+            "allocator": "allocator", "alloc": "allocator",
+            "deallocator": "deallocator", "free": "deallocator",
         }
         for role in data.get("roles", ()):
             canonical = role_map.get(role)

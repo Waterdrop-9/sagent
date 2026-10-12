@@ -84,12 +84,13 @@ confirmed finding 触发 PoC 时，目录应包含：
   "findingIDs": ["<binaryID>/<functionID>"],
   "request": "poc-request.md",
   "response": "poc-response.md",
+  "usage": {"tokens_input": 29641, "tokens_output": 8361, "cost": 0.0163},
   "files": ["<functionID>.<CWE编号>.md", "<functionID>.<CWE编号>.py"],
   "executed": false
 }
 ```
 
-`files` 由 CLI 在 PoC 阶段结束后自动清点 `poc/` 里的普通文件生成，是交付物索引；手动查看结果先读它，再按 `poc/<文件名>` 打开报告和脚本。PoC 调用失败时同样写 `poc-manifest.json`，字段形状与成功一致（`status` 为 `failed`、`files` 为空列表，另加 `error` 字段），消费方不会遇到缺失字段。
+`usage` 是底座的开销观测（OpenCode 从本地会话库按运行目录+时间窗匹配，读不到时为 `null`），不影响阶段结果；`files` 由 CLI 在 PoC 阶段结束后自动清点 `poc/` 里的普通文件生成，是交付物索引；手动查看结果先读它，再按 `poc/<文件名>` 打开报告和脚本。PoC 调用失败时同样写 `poc-manifest.json`，字段形状与成功一致（`status` 为 `failed`、`files` 为空列表，另加 `error` 字段），消费方不会遇到缺失字段。
 
 没有 confirmed finding 时不创建 PoC 请求，报告应记录：
 
@@ -120,6 +121,8 @@ PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evide
 
 外部漏洞分析问题目录不属于 PoC 阶段。不要把 `config/foolish/*.md` 当作 PoC prompt，也不要用它驱动 PoC 请求。
 
+本机 GhidraMCP 环境（2026-10-13 重建）：唯一 ghidra 安装是 ghidra 12.0.4（`/Users/xpf/MyArchive/Research/Utils/ghidra_12.0.4_PUBLIC`）；扩展 jar 复用上一会话为 12.1.2 构建的 `/private/tmp/GhidraMCP.jar`（实测与 12.0.4 兼容，import/analyze 成功）。基线环境变量：`GHIDRA_INSTALL_DIR=/Users/xpf/MyArchive/Research/Utils/ghidra_12.0.4_PUBLIC`、`GHIDRA_MCP_EXTENSION_JAR=/private/tmp/GhidraMCP.jar`、`AGENT_PATH_BACKEND_PYTHON=/tmp/sagent-angr-venv/bin/python`（path 后端）。
+
 ## 最近验证结论
 
 - `OpenCodeRuntime` 已有独立请求能力，fake OpenCode CLI 的端到端测试通过。
@@ -131,6 +134,8 @@ PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evide
 - code review 清理（2026-10-13）：PoC 外部调用补全开始/结束/失败日志；`poc-manifest.json` 成功/失败形态统一（`files` 恒存在，失败为空）；术语统一为"独立的 PoC 阶段"（去掉"外部"，含 docs/06）；`{created_at}` 改填真实时间戳；模板文件名改为 `<functionID>.<CWE编号>.md/.py`（`{cwe_id}` 参数化，跟随 `--cwe`）；`docs/11` 列入 `docs/文档索引.md`；`docs/11` 与手册补失败 manifest 说明。
 - `--cwe` 默认 `all`（2026-10-13）：不再要求每次指定单个 CWE，缺省时依次运行全部支持的 CWE（每个 CWE 独立 `run-<id>`，`report.json` 带 `cwe` 字段）；同时修复 `build_user_prompt` 用 `str.format` 导致模板 C 代码花括号报 `KeyError` 的问题（改字面替换）。
 - 真实 `server` demo 的静态路径后端曾返回 `path_found`，但 RDA 只提供函数内定义链；demo 自身最终无 confirmed finding，PoC 为 `skipped_no_confirmed_findings`。验证“成功生成 PoC”走 confirmed fixture 路径。
+- 运行开销观测与日志监视（2026-10-13）：`report.json` 增加 `elapsedSeconds`（分析+PoC 墙钟时间）与 `usage`（OpenCode 从 `$XDG_DATA_HOME/opencode/opencode.db` 的 `session_v2` 按运行目录+时间窗匹配本次会话，读出 tokens_input/output/reasoning/cache_read/cache_write/cost 六列；读不到为 null，不影响分析）；`poc-manifest.json` 恒带 `usage` 字段；CLI 日志带时间戳，每轮日志追加写入 `run-<id>/analysis.log`，分析/PoC 结束行带耗时与 tokens_in/out，末尾输出“运行全部结束”汇总；手册新增 §5.2 日志与开销监视。
+- 运行开销基线（2026-10-13，`tests/20261013_01_运行开销基线_r01/`）：`--cwe all --poc` 完整运行 6 个 CWE。第 1 轮 1415.4s、5/6 失败，暴露三类 schema 硬化问题，已修复并复跑：`findings[].limitations` 允许空字符串项（report-schema 强化非空）、模型发明 `allocator` 角色被拒（models.py 与 source-sink-model.md 补 allocator/deallocator 词汇）、CWE-78 报告 JSON 截断（report-schema 要求报告完整闭合）。第 2 轮 6/6 全部通过、总耗时 1378.3s、token 合计 in 708,657 / out 84,655、成本约 $0.29。分析请求 cwd 从仓库根改为 run 目录（模型文件与 `.opencode` 落进 run 目录）；`.gitignore` 增加 `/.opencode` 与 `/data/02_two_firmwares`。已知环境抖动：GhidraMCP 会话时连时不连，未连上时 agent 降级为 objdump+paths 并照常产出有效报告。
 
 ## 恢复后的检查顺序
 

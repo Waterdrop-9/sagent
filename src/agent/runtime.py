@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Protocol
@@ -40,6 +41,8 @@ class AgentResponse:
     raw_stdout: str
     raw_stderr: str
     returncode: int
+    # 底座能提供时的 token/cost 开销（opencode 从本地会话库读出）；读不到时为 None。
+    usage: dict[str, int | float] | None = None
 
 
 class AgentRuntime(Protocol):
@@ -75,9 +78,8 @@ class _CliRuntime:
             )
         return executable
 
-    def run(self, request: AgentRequest) -> AgentResponse:
-        self._check_executable()
-        command = self.build_command(request)
+    def _effective_env(self, request: AgentRequest) -> dict[str, str]:
+        """本次子进程继承的环境：进程环境 + 运行时/请求注入，PWD 修正为实际 cwd。"""
         env = os.environ.copy()
         env.update(self.environment)
         if request.environment:
@@ -86,6 +88,12 @@ class _CliRuntime:
             # 调用方 shell 可能携带过期的 PWD（指向工作区根而非实际 cwd）；
             # opencode 等项目发现依赖 PWD，不一致时读不到 cwd/.opencode 下的配置。
             env["PWD"] = str(Path(request.cwd).resolve())
+        return env
+
+    def run(self, request: AgentRequest) -> AgentResponse:
+        self._check_executable()
+        command = self.build_command(request)
+        env = self._effective_env(request)
         try:
             completed = subprocess.run(
                 command,
@@ -172,6 +180,16 @@ class OpenCodeRuntime(_CliRuntime):
 
     name = "opencode"
 
+    # opencode 会话库中本次请求的开销列；行不存在或库读不了时 usage 为 None。
+    _USAGE_COLUMNS = (
+        "tokens_input",
+        "tokens_output",
+        "tokens_reasoning",
+        "tokens_cache_read",
+        "tokens_cache_write",
+        "cost",
+    )
+
     def __init__(
         self,
         executable: str = "opencode",
@@ -196,10 +214,13 @@ class OpenCodeRuntime(_CliRuntime):
         return tuple(command)
 
     def run(self, request: AgentRequest) -> AgentResponse:
-        if not request.mcp_config:
-            return super().run(request)
-        # OpenCode 2 从项目的 .opencode/opencode.json 发现配置。
+        started = time.time()
         cwd = (request.cwd or Path.cwd()).resolve()
+        env = self._effective_env(request)
+        if not request.mcp_config:
+            response = super().run(request)
+            return replace(response, usage=self._session_usage(cwd, started, env))
+        # OpenCode 2 从项目的 .opencode/opencode.json 发现配置。
         config_dir = cwd / ".opencode"
         config_path = config_dir / "opencode.json"
         previous = config_path.read_bytes() if config_path.exists() else None
@@ -207,7 +228,8 @@ class OpenCodeRuntime(_CliRuntime):
         try:
             config_path.write_bytes(request.mcp_config.read_bytes())
             config_path.chmod(0o600)
-            return super().run(replace(request, cwd=cwd))
+            response = super().run(replace(request, cwd=cwd))
+            return replace(response, usage=self._session_usage(cwd, started, env))
         finally:
             if previous is None:
                 config_path.unlink(missing_ok=True)
@@ -219,6 +241,40 @@ class OpenCodeRuntime(_CliRuntime):
                     LOG.debug("清理 .opencode 目录失败: %s", exc)
             else:
                 config_path.write_bytes(previous)
+
+    def _session_usage(
+        self, cwd: Path, started_at: float, env: Mapping[str, str]
+    ) -> dict[str, int | float] | None:
+        """从 opencode 本地会话库读出本次 run 的 token/cost 开销。
+
+        每个 `opencode run` 对应 session_v2 一行；按运行目录 + 启动时间窗匹配最近一行。
+        任何失败都只记 debug 并返回 None——开销是观测信息，不允许反过来让分析失败。
+        """
+        data_home = env.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+        db_path = Path(data_home) / "opencode" / "opencode.db"
+        if not db_path.is_file():
+            return None
+        # 时间窗放宽 1s：session 的行写入时间可能与子进程启动有轻微先后差异。
+        started_ms = int(started_at * 1000) - 1000
+        try:
+            import sqlite3  # opencode 是可选的底座；用不到它时不引入该模块。
+
+            connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+            try:
+                row = connection.execute(
+                    f"SELECT {', '.join(self._USAGE_COLUMNS)} FROM session_v2 "
+                    "WHERE directory IN (?, ?) AND time_created >= ? "
+                    "ORDER BY time_created DESC LIMIT 1",
+                    (str(cwd), str(cwd.resolve()), started_ms),
+                ).fetchone()
+            finally:
+                connection.close()
+        except Exception as exc:
+            LOG.debug("读取 opencode 会话开销失败: %s", exc)
+            return None
+        if row is None:
+            return None
+        return dict(zip(self._USAGE_COLUMNS, row))
 
 
 def runtime_from_name(name: str, **kwargs: object) -> AgentRuntime:

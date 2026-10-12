@@ -5,3 +5,5 @@
 函数模型状态：`candidate`、`confirmed`、`rejected`、`unknown`。
 
 模型应使用 `binaryID`、`functionID`、`functionAddress`、`roles`、`cweTypes`、`sourceParams`、`sinkParams`、`propagationMap` 和 `evidenceIDs`。
+
+roles 只能是：`source`、`sink`、`sanitizer`、`wrapper`、`parser`、`auth_boundary`、`allocator`、`deallocator`。内存生命周期类 CWE（415 重复释放 / 416 释放后使用）用 `allocator`（malloc、fopen、popen 等分配函数）和 `deallocator`（free、fclose、pclose 等释放函数）标注；除此之外不要发明新角色。
