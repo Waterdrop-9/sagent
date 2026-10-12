@@ -59,7 +59,8 @@
 - PoC 阶段接好：新建仓库内专用模板 `prompts/poc-stage.md`（弃用外部模板；报告叙事结构借鉴 vulnhunter 的 PoC prompt 思想，契约由 Sagent 自己定义），`config.toml(.example)` 的 `[poc].prompt_file` 改为相对路径；模板契约测试更新后通过。
 - 新增 `tests/20261012_02_PoC阶段_r01/`：fake OpenCode 端到端验证 PoC 落盘、manifest 结构、cwd 与 skipped 分支；confirmed fixture（真实 evidenceID）通过证据门禁；真实 OpenCode PoC 请求成功生成静态审计材料，`executed: false`。
 - 修复运行时缺陷：`_CliRuntime.run` 把过期的 `PWD` 环境变量修正为实际 cwd（opencode 项目发现依赖 `PWD`，不一致会报 `Model unavailable`），并加回归测试。
-- PoC 产物布局收紧：request/response/manifest 移到 run 目录顶层（`poc-request.md`/`poc-response.md`/`poc-manifest.json`），`poc/` 里只保留模型生成的 PoC 报告；`OpenCodeRuntime` 运行后清理空的 `.opencode/` 目录；真实请求按新布局复跑成功。
+- PoC 产物布局收紧：request/response/manifest 移到 run 目录顶层（`poc-request.md`/`poc-response.md`/`poc-manifest.json`），`poc/` 里只保留模型生成的 PoC 报告和验证脚本；`OpenCodeRuntime` 运行后清理空的 `.opencode/` 目录；真实请求按新布局复跑成功。
+- PoC 阶段借鉴 vulnhunter 产出验证脚本：每个 confirmed finding 除 8 小节报告外再生成可运行的 `<functionID>.CWE-78.poc.py`（命令行参数、证据出处注释、默认无害命令、超时与异常处理、仅供授权隔离环境人工执行）；真实请求已验证，`executed: false`。
 
 ## 暂缓项
 

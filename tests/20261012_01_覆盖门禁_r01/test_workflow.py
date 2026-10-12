@@ -125,8 +125,12 @@ class ReportTests(unittest.TestCase):
         self.assertIn('关键参数', prompt)
         self.assertIn('证据引用', prompt)
         self.assertIn('限制与不确定性', prompt)
-        # poc/ 目录只写 PoC 报告文件。
-        self.assertIn('poc/ 目录里只写 PoC 报告文件', prompt)
+        # poc/ 目录只写 PoC 报告和验证脚本，脚本只生成不执行。
+        self.assertIn('poc/ 目录里只写 PoC 报告和验证脚本', prompt)
+        self.assertIn('<functionID>.CWE-78.poc.py', prompt)
+        self.assertIn('仅供授权环境测试', prompt)
+        self.assertIn('超时和异常处理', prompt)
+        self.assertIn('验证脚本只生成不执行', prompt)
         with self.assertRaises(ValueError):
             adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
         with self.assertRaises(ValueError):

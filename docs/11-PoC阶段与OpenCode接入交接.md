@@ -70,7 +70,8 @@ confirmed finding 触发 PoC 时，目录应包含：
 ├── poc-response.md
 ├── poc-manifest.json
 └── poc/
-    └── <functionID>.CWE-78.poc.md   # 只放模型生成的 PoC 报告
+    ├── <functionID>.CWE-78.poc.md   # PoC 报告（8 小节叙事）
+    └── <functionID>.CWE-78.poc.py   # 验证脚本（借鉴 vh 的 poc/<name>.py）
 ```
 
 `poc-manifest.json` 至少记录：
@@ -112,17 +113,17 @@ prompt_file = "prompts/poc-stage.md"
 
 PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evidenceIDs、生成静态审计材料、把文件写入当前 `poc/` 工作目录，并保持 `executed = false`。模板不应承担漏洞重新判断、source/sink 重新发现或覆盖账本判定。
 
-报告叙事结构（基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性）借鉴了 vulnhunter（`vulnhunter_v2_local/config/`）的 PoC 生成 prompt 思想；借鉴仅限 prompt 组织方式，vulnhunter 源码本身不被修改。模板要求 `poc/` 目录里只写 PoC 报告文件，不写脚本、笔记、日志等其它文件，也不创建子目录。
+报告叙事结构（基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性）和"每个 finding 配一个可运行验证脚本"的产出方式借鉴了 vulnhunter（`vulnhunter_v2_local/config/`）的 PoC 生成 prompt 思想；借鉴仅限 prompt 组织方式，vulnhunter 源码本身不被修改。模板要求 `poc/` 目录里只写 PoC 报告和验证脚本，不写笔记、日志、配置等其它文件，也不创建子目录；验证脚本只生成不执行，由人工在隔离环境运行（`executed` 保持 false）。
 
 外部漏洞分析问题目录不属于 PoC 阶段。不要把 `config/foolish/*.md` 当作 PoC prompt，也不要用它驱动 PoC 请求。
 
 ## 最近验证结论
 
 - `OpenCodeRuntime` 已有独立请求能力，fake OpenCode CLI 的端到端测试通过。
-- PoC 阶段模板已换成仓库内 `prompts/poc-stage.md`（报告叙事结构借鉴 vulnhunter 的 PoC prompt 思想），模板契约测试（只处理 confirmed、只引用已有 evidenceIDs、executed 保持 false、不重判/不重发现/不做账本判定、8 小节结构与 poc/ 干净要求）全部通过。
-- fake OpenCode 全链路测试通过：confirmed 触发时 run 级 `poc-request.md`/`poc-response.md`/`poc-manifest.json` 落盘、manifest 结构正确、cwd 是 `<run>/poc/`、`poc/` 目录里只有模型生成的报告；无 confirmed 时报告 `skipped_no_confirmed_findings` 且不建 `poc/`。
-- confirmed fixture（`doSystem`，5 个真实 evidenceID）已通过本地证据门禁，run 产物在 `tests/20261012_02_PoC阶段_r01/产物/group-6aeb5375a9c368ad/run-2d09d8322eae/`。
-- 真实 OpenCode PoC 请求已成功（新模板 + 干净布局）：模型只引用已有 evidenceID，生成 `poc/doSystem.CWE-78.poc.md`（8 小节：基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性，人工验证步骤全部标注“需人工执行”），`poc-manifest.json` 记录 `executed: false`；未执行样本。
+- PoC 阶段模板已换成仓库内 `prompts/poc-stage.md`（报告叙事结构与验证脚本产出方式借鉴 vulnhunter 的 PoC prompt 思想），模板契约测试（只处理 confirmed、只引用已有 evidenceIDs、executed 保持 false、不重判/不重发现/不做账本判定、8 小节结构与 poc/ 干净要求）全部通过。
+- fake OpenCode 全链路测试通过：confirmed 触发时 run 级 `poc-request.md`/`poc-response.md`/`poc-manifest.json` 落盘、manifest 结构正确、cwd 是 `<run>/poc/`、`poc/` 目录里只有模型生成的报告和验证脚本；无 confirmed 时报告 `skipped_no_confirmed_findings` 且不建 `poc/`。
+- confirmed fixture（`doSystem`，5 个真实 evidenceID）已通过本地证据门禁，run 产物在 `tests/20261012_02_PoC阶段_r01/产物/group-6aeb5375a9c368ad/run-4a9b6b216ae1/`。
+- 真实 OpenCode PoC 请求已成功（新模板 + 干净布局）：模型只引用已有 evidenceID，生成 `poc/doSystem.CWE-78.poc.md`（8 小节：基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性，人工验证步骤全部标注“需人工执行”）和可运行的 `poc/doSystem.CWE-78.poc.py`（--host/--port/--command 命令行参数、默认端口 8002=0x1f42 有证据出处、默认只发无害命令 `id`、带超时与异常处理、仅供授权隔离环境由人工执行）；`poc-manifest.json` 记录 `executed: false`；未执行样本。
 - 真实请求暴露并修复了一个运行时缺陷：调用方 shell 携带过期 `PWD`（指向仓库根）时 opencode 项目发现失效，报 `Model unavailable`；`_CliRuntime.run` 现在把 `PWD` 修正为实际 cwd，并有回归测试。
 - 真实 `server` demo 的静态路径后端曾返回 `path_found`，但 RDA 只提供函数内定义链；demo 自身最终无 confirmed finding，PoC 为 `skipped_no_confirmed_findings`。验证“成功生成 PoC”走 confirmed fixture 路径。
 
@@ -130,7 +131,7 @@ PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evide
 
 1. 检查 `src/agent/poc_stage.py` 的模板契约，确认模板不是外部漏洞分析问题清单。—— 已完成：模板为 `prompts/poc-stage.md`。
 2. 检查 `cli.py` 只从最终 `findings` 筛选 `confirmed`，不从 functionModels、candidate 或 coverage 计数推断。—— 已完成。
-3. 检查 PoC 请求的 cwd 是 `<run>/poc/`，并确认 request/response/manifest 在 run 目录顶层独立保存、`poc/` 里只有模型生成的报告。—— 已完成，fake 测试断言 cwd 为 poc 绝对路径与干净目录。
+3. 检查 PoC 请求的 cwd 是 `<run>/poc/`，并确认 request/response/manifest 在 run 目录顶层独立保存、`poc/` 里只有模型生成的报告和验证脚本。—— 已完成，fake 测试断言 cwd 为 poc 绝对路径与干净目录。
 4. 用 fake OpenCode 验证文件落盘和 manifest 内容；这个测试不执行样本。—— 已完成，`tests/20261012_02_PoC阶段_r01/test_poc_cli.py`。
 5. 准备有真实 evidenceID 的 confirmed fixture 后，再用 OpenCode 做一次真实 PoC 请求。—— 已完成，fixture 与真实请求脚本见 `tests/20261012_02_PoC阶段_r01/`。
 6. 真实请求完成后，把产物放在对应 `tests/.../产物/`；`tests/` 目录继续保持 gitignore。—— 已完成。
