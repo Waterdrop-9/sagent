@@ -36,6 +36,14 @@ def serve(command: list[str], directory: Path, server: str, group_id: str, binar
         write_json(raw / f"budget-{server}.json", {"reason": reason})
         return {"isError": True, "content": [{"type": "text", "text": "budget_exhausted: " + reason}]}
 
+    def log_line(text: str) -> None:
+        """关键动作落进本轮 analysis.log（run 目录），便于事后排查；失败不影响代理。"""
+        try:
+            with (directory / "analysis.log").open("a", encoding="utf-8") as stream:
+                stream.write(text + "\n")
+        except OSError:
+            pass
+
     def responses() -> None:
         nonlocal used
         assert child.stdout is not None
@@ -49,7 +57,8 @@ def serve(command: list[str], directory: Path, server: str, group_id: str, binar
             if entry:
                 request, started = entry
                 if request.get("method") == "initialize" and "result" in response:
-                    write_json(raw / f"{server}-version.json", response["result"].get("serverInfo", {}))
+                    # MCP 会话版本只作一行日志，不单独生成 version 文件（减少产物杂音）。
+                    log_line(f"{server}: MCP 会话初始化 serverInfo={json.dumps(response['result'].get('serverInfo', {}), ensure_ascii=False)}")
                 if request.get("method") == "tools/call":
                     result = response.get("result", {"isError": True, "content": [
                         {"type": "text", "text": json.dumps(response.get("error", {}))}]})
@@ -108,6 +117,8 @@ def serve(command: list[str], directory: Path, server: str, group_id: str, binar
                 os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
         reader.join(timeout=3)
+        # 会话收尾：证据条数与字节量一行入账，便于判断本轮工具是否真实工作。
+        log_line(f"{server}: 会话结束 记录证据={count} 条 字节={used}")
     return child.returncode or 0
 
 

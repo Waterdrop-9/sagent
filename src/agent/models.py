@@ -98,7 +98,10 @@ class FunctionSecurityModel:
             cwe_types=tuple(data.get("cweTypes", ())),
             source_params=tuple(data.get("sourceParams", ())), sink_params=tuple(data.get("sinkParams", ())),
             propagation_map=tuple(PropagationMapping(
-                from_param=p["fromParam"], to_function=p["toFunction"],
+                # 模型偶尔会把 fromParam/toFunction 写成 from/to，容忍这两个别名；
+                # 键名契约以 prompts/common/report-schema.md 为准。
+                from_param=p.get("fromParam", p.get("from")),
+                to_function=p.get("toFunction", p.get("to")),
                 to_param=p.get("toParam"), callsite_address=p.get("callsiteAddress"),
                 evidence_ids=tuple(p.get("evidenceIDs", ())),
             ) for p in raw_map),

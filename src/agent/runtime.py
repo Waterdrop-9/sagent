@@ -94,6 +94,13 @@ class _CliRuntime:
         self._check_executable()
         command = self.build_command(request)
         env = self._effective_env(request)
+        # 命令本身是关键 debug 信息：底座、模型与工作目录一目了然。
+        LOG.info(
+            "运行命令: %s%s",
+            " ".join(command),
+            f" (cwd={request.cwd})" if request.cwd is not None else "",
+        )
+        started = time.monotonic()
         try:
             completed = subprocess.run(
                 command,
@@ -111,6 +118,13 @@ class _CliRuntime:
         except OSError as exc:
             raise AgentRuntimeError(f"启动 {self.name} Agent 失败: {exc}") from exc
 
+        LOG.info(
+            "进程退出 code=%d stdout=%dB stderr=%dB 耗时=%.1fs",
+            completed.returncode,
+            len(completed.stdout.encode()),
+            len(completed.stderr.encode()),
+            time.monotonic() - started,
+        )
         if completed.returncode != 0:
             detail = completed.stderr.strip() or completed.stdout.strip()
             raise AgentRuntimeError(
@@ -190,6 +204,12 @@ class OpenCodeRuntime(_CliRuntime):
         "cost",
     )
 
+    # 两个 `opencode run --standalone` 几乎同时启动时，standalone 服务偶发起不来
+    # （"Standalone server exited before reporting readiness"）。这是启动竞态，不是
+    # 分析失败：退避重试有限次；重试只发生在会话尚未开始产出之前，不重复消耗分析。
+    _SERVER_START_RACE = "Standalone server exited before reporting readiness"
+    _STARTUP_RETRIES = 2
+
     def __init__(
         self,
         executable: str = "opencode",
@@ -213,12 +233,35 @@ class OpenCodeRuntime(_CliRuntime):
         command.append(prompt)
         return tuple(command)
 
+    def _run_with_startup_retry(self, request: AgentRequest) -> AgentResponse:
+        """standalone 服务启动竞态时退避重试；其它错误原样抛出。"""
+        delay = 2.0
+        for attempt in range(self._STARTUP_RETRIES + 1):
+            try:
+                return super().run(request)
+            except AgentRuntimeError as exc:
+                if (
+                    self._SERVER_START_RACE not in str(exc)
+                    or attempt >= self._STARTUP_RETRIES
+                ):
+                    raise
+                LOG.warning(
+                    "底座会话启动竞态，%ds 后重试（第 %d/%d 次）: %s",
+                    int(delay),
+                    attempt + 1,
+                    self._STARTUP_RETRIES,
+                    str(exc).splitlines()[0],
+                )
+                time.sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")
+
     def run(self, request: AgentRequest) -> AgentResponse:
         started = time.time()
         cwd = (request.cwd or Path.cwd()).resolve()
         env = self._effective_env(request)
         if not request.mcp_config:
-            response = super().run(request)
+            response = self._run_with_startup_retry(request)
             return replace(response, usage=self._session_usage(cwd, started, env))
         # OpenCode 2 从项目的 .opencode/opencode.json 发现配置。
         config_dir = cwd / ".opencode"
@@ -228,7 +271,7 @@ class OpenCodeRuntime(_CliRuntime):
         try:
             config_path.write_bytes(request.mcp_config.read_bytes())
             config_path.chmod(0o600)
-            response = super().run(replace(request, cwd=cwd))
+            response = self._run_with_startup_retry(replace(request, cwd=cwd))
             return replace(response, usage=self._session_usage(cwd, started, env))
         finally:
             if previous is None:

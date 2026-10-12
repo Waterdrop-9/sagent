@@ -17,7 +17,7 @@ finding 至少包含 cwe、binaryID、functionID、source、sink、sinkParams、
 
 attackSurfaces 每项包含 surfaceID、category、functionID、status（open/checked/rejected/unknown）、evidenceIDs、reason。无法检查的攻击面必须写 unknown 和原因；不能用空数组表示全部覆盖。
 
-functionModels 每项使用函数模型规则中的字段；source/sink 角色与 finding 状态分别记录。sinkParams 是从 0 开始的参数编号。外部 sink 的 functionID 使用路径工具返回的 sink.functionID；无法确定时保留内部模型状态并写入 unresolved，不生成最终 finding。同一函数只记录一个模型，可有多个 roles。
+functionModels 每项使用函数模型规则中的字段；source/sink 角色与 finding 状态分别记录。sinkParams 是从 0 开始的参数编号。外部 sink 的 functionID 使用路径工具返回的 sink.functionID；无法确定时保留内部模型状态并写入 unresolved，不生成最终 finding。同一函数只记录一个模型，可有多个 roles。propagationMap 每项是参数间传播映射，**键名固定**为 `{"fromParam": "参数名或编号", "toFunction": "目标函数ID", "toParam": 编号或 null, "callsiteAddress": "调用点地址", "evidenceIDs": ["ev-..."]}`——不要写成 from/to 等其它键名；没有传播关系就写 `[]`。
 
 unresolved 每项是原因字符串，或包含 reason 的对象。每类数组最多 128 项，报告最多 512 KiB。达到预算时保留高价值候选，并在 unresolved 写 budget_exhausted 和遗漏范围。
 

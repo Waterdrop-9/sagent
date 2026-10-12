@@ -84,6 +84,22 @@ class ReportTests(unittest.TestCase):
             parse_report(json.dumps({'findings': [], 'unresolved': [], 'coverage': {'functionModels': [
                 {'binaryID': 'a', 'functionID': 'f', 'sinkParams': [True]}]}}))
 
+    def test_propagation_map_accepts_from_to_alias(self):
+        # 真实故障：模型把 propagationMap 项的 fromParam/toFunction 写成 from/to
+        # （run-87248cd335b0 报 "函数模型无效: 'fromParam'"）。解析层容忍这两个
+        # 别名，但键名契约以 prompts/common/report-schema.md 为准。
+        model = FunctionSecurityModel.from_dict({
+            'binaryID': 'b', 'functionID': 'f',
+            'propagationMap': [
+                {'from': '0x401be7 popen', 'to': '0x401c6d pclose', 'toParam': None},
+                {'fromParam': 'argv[1]', 'toFunction': 'popen', 'toParam': 0},
+            ],
+        })
+        self.assertEqual(model.propagation_map[0].from_param, '0x401be7 popen')
+        self.assertEqual(model.propagation_map[0].to_function, '0x401c6d pclose')
+        self.assertEqual(model.propagation_map[1].from_param, 'argv[1]')
+        self.assertEqual(model.propagation_map[1].to_param, 0)
+
     def test_final_finding_status_has_no_intermediate_state(self):
         for status in ('candidate', 'inconclusive'):
             with self.assertRaises(AgentReportError):
@@ -188,6 +204,45 @@ class ArtifactTests(unittest.TestCase):
         report = self.store.finalize(self.report)
         self.assertEqual(report['findings'], [])
         self.assertTrue(any('finding 未达到最终状态门槛' in item for item in report['unresolved']))
+
+    def test_model_and_surface_hallucinated_evidence_is_stripped(self):
+        # 真实故障：run-80e26d98d2d7 的函数模型/攻击面引用了一个代理从未签发的
+        # evidenceID（findings 被门槛移出，但模型/攻击面上的坏引用留在报告里）。
+        # 修复后坏引用从模型/攻击面剔除，只保留可核验的引用，并记 unresolved。
+        raw = self.store.directory / 'raw'
+        raw.mkdir(exist_ok=True)
+        (raw / 'ghidra.jsonl').write_text(json.dumps({
+            'evidenceID': 'ev-fake-ghidra-1', 'server': 'ghidra',
+            'tool': 'decompile_function', 'arguments': {},
+            'analysisGroupID': self.context.analysis_group_id,
+            'binaryID': self.context.root['binaryID'],
+            'elapsedSeconds': 1, 'result': {'status': 'ok'},
+        }) + '\n')
+        self.report['coverage']['functionModels'] = [{
+            'binaryID': self.context.root['binaryID'], 'functionID': '0x100',
+            'roles': ['sink'], 'sinkParams': [0], 'status': 'confirmed',
+            'evidenceIDs': ['invented', 'ev-fake-ghidra-1'], 'propagationMap': [
+                {'fromParam': 'a', 'toFunction': '0x200', 'toParam': 0,
+                 'evidenceIDs': ['invented']},
+            ],
+        }]
+        self.report['coverage']['attackSurfaces'] = [{
+            'surfaceID': 's', 'category': 'network', 'functionID': '0x100',
+            'status': 'checked', 'evidenceIDs': ['invented'],
+        }]
+        report = self.store.finalize(self.report)
+        self.assertEqual(
+            report['coverage']['functionModels'][0]['evidenceIDs'], ['ev-fake-ghidra-1']
+        )
+        # 坏引用在 propagationMap 条目内：整个条目被剔除。
+        self.assertEqual(
+            report['coverage']['functionModels'][0]['propagationMap'], []
+        )
+        self.assertEqual(
+            report['coverage']['attackSurfaces'][0]['evidenceIDs'], []
+        )
+        self.assertTrue(any('证据引用无法核验: invented' in item for item in report['unresolved']))
+        self.assertTrue(any('传播关系证据引用无法核验: invented' in item for item in report['unresolved']))
 
     def test_resume_checks_group_and_preserves_original(self):
         self.store.finalize(self.report)

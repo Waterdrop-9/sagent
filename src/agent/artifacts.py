@@ -93,18 +93,45 @@ class ArtifactStore:
         objects = [*report["findings"], *report["coverage"].get("attackSurfaces", []),
                    *report["coverage"].get("functionModels", [])]
         for item in objects:
+            valid_ids = []
             for evidence_id in item.get("evidenceIDs", []):
                 record = evidence.get(evidence_id)
                 if not record or (item.get("binaryID") and item["binaryID"] != record["binaryID"]):
                     ledger.add_unresolved(f"证据引用无法核验: {evidence_id}")
                     invalid_references.add(evidence_id)
-                elif record["result"].get("isError"):
+                    continue
+                if record["result"].get("isError"):
                     ledger.add_unresolved(f"引用的工具执行失败: {evidence_id}")
                     invalid_references.add(evidence_id)
-                else:
-                    referenced.add(evidence_id)
+                    continue
+                valid_ids.append(evidence_id)
+                referenced.add(evidence_id)
             if item.get("binaryID") and item["binaryID"] not in binary_ids:
                 ledger.add_unresolved(f"对象不在分析组内: {item['binaryID']}")
+            # 报告里不再保留无法核验的 evidenceID。finding 由下方"全部有效"门槛
+            # 整体移出，这里只剔除函数模型/攻击面上的坏引用，保留对象本身。
+            if item not in report["findings"] and valid_ids != list(item.get("evidenceIDs", [])):
+                item["evidenceIDs"] = valid_ids
+            # propagationMap 条目里的证据引用同样必须可核验；含坏引用的条目整体
+            # 剔除（与 finding 门槛一致：证据不实的传播声明不留在报告里）。
+            if "propagationMap" in item:
+                kept_entries = []
+                for entry in item["propagationMap"]:
+                    entry_ids = entry.get("evidenceIDs", [])
+                    valid_entry = all(
+                        eid in evidence and not evidence[eid]["result"].get("isError")
+                        for eid in entry_ids
+                    )
+                    if valid_entry:
+                        kept_entries.append(entry)
+                        continue
+                    for eid in entry_ids:
+                        if eid not in evidence:
+                            ledger.add_unresolved(f"传播关系证据引用无法核验: {eid}")
+                        elif evidence[eid]["result"].get("isError"):
+                            ledger.add_unresolved(f"传播关系引用的工具执行失败: {eid}")
+                if kept_entries != item["propagationMap"]:
+                    item["propagationMap"] = kept_entries
         final_findings = []
         for finding in report["findings"]:
             valid_evidence = all(
