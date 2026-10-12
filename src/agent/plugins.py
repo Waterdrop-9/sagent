@@ -35,15 +35,17 @@ class CwePlugin(Protocol):
     ) -> dict[str, object]: ...
 
 
-class Cwe78Plugin:
-    """CWE-78 的首个工具和 prompt 插件。"""
+class MarkdownCwePlugin:
+    """从 prompts/<cwe>/ 读取规则并共享 MCP 工具配置。"""
 
-    cwe_id = "CWE-78"
-    name = "cwe78"
+    cwe_id = ""
+    name = ""
 
     def __init__(self, prompt_root: Path | None = None) -> None:
         root = prompt_root or Path(__file__).resolve().parents[2] / "prompts"
-        self.prompt_root = root / "cwe-78"
+        if not self.name or not self.cwe_id:
+            raise ValueError("CWE 插件必须声明 cwe_id 和 name")
+        self.prompt_root = root / self.name
         common_root = root / "common"
         common_prompts = tuple(
             self._read_file(common_root / name)
@@ -218,6 +220,55 @@ class Cwe78Plugin:
                 "models": {model: {"name": model}},
             }
         }
+
+
+class Cwe78Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-78"
+    name = "cwe-78"
+
+
+class Cwe134Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-134"
+    name = "cwe-134"
+
+
+class Cwe190Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-190"
+    name = "cwe-190"
+
+
+class Cwe606Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-606"
+    name = "cwe-606"
+
+
+class Cwe415Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-415"
+    name = "cwe-415"
+
+
+class Cwe416Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-416"
+    name = "cwe-416"
+
+
+_CWE_PLUGINS: dict[str, type[MarkdownCwePlugin]] = {
+    cls.cwe_id: cls
+    for cls in (Cwe78Plugin, Cwe134Plugin, Cwe190Plugin, Cwe606Plugin, Cwe415Plugin, Cwe416Plugin)
+}
+
+
+def plugin_for_cwe(cwe_id: str, prompt_root: Path | None = None) -> MarkdownCwePlugin:
+    """构造首批 CWE 插件；一次运行只选择一种 CWE。"""
+    normalized = cwe_id.upper()
+    try:
+        return _CWE_PLUGINS[normalized](prompt_root)
+    except KeyError as exc:
+        raise ValueError(f"不支持的 CWE: {cwe_id}") from exc
+
+
+def supported_cwes() -> tuple[str, ...]:
+    return tuple(_CWE_PLUGINS)
 
 
 def write_runtime_config(

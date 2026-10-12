@@ -14,7 +14,8 @@ from .analysis_context import AnalysisContextError, build_contexts, render_conte
 from .agent_report import AgentReportError, MAX_REPORT_BYTES, parse_report
 from .artifacts import ArtifactStore, write_json
 from .config import ConfigError, agent_environment, load_config, load_ghidra_config
-from .plugins import Cwe78Plugin, write_runtime_config
+from .external_poc import ExternalPocAdapter, ExternalPocError
+from .plugins import plugin_for_cwe, supported_cwes, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
 
 LOG = logging.getLogger(__name__)
@@ -26,8 +27,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target", type=Path, required=True, help="待分析 ELF 或目录")
     parser.add_argument("--dependency-root", action="append", type=Path, default=[])
     parser.add_argument("--goal", required=True, help="人工分析目标")
+    parser.add_argument("--cwe", choices=supported_cwes(), default="CWE-78", help="本次运行的 CWE 类型")
     parser.add_argument("--output", type=Path, default=Path("analysis"), help="产物根目录")
     parser.add_argument("--resume", type=Path, help="此前单个分析组的运行目录")
+    parser.add_argument("--poc", action="store_true", help="对 confirmed findings 接入外部 PoC 阶段")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -38,8 +41,14 @@ def main(argv: list[str] | None = None) -> int:
         ghidra = load_ghidra_config()
         if args.resume and len(contexts) != 1:
             raise AnalysisContextError("--resume 需要单 ELF 输入；每个分析组独立恢复")
-        plugin = Cwe78Plugin()
+        plugin = plugin_for_cwe(args.cwe)
         runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
+        poc_requested = args.poc or config.poc.enabled
+        poc_adapter = None
+        if poc_requested:
+            if config.poc.prompt_dir is None:
+                raise ConfigError("启用 PoC 阶段需要配置 poc.prompt_dir")
+            poc_adapter = ExternalPocAdapter(config.poc.prompt_dir)
         source_root = Path(__file__).resolve().parents[1]
         reports = []
         failed = False
@@ -89,10 +98,44 @@ def main(argv: list[str] | None = None) -> int:
                     (directory / "raw").mkdir(exist_ok=True)
                     (directory / "raw" / "agent.txt").write_text(response.text, encoding="utf-8")
                     report = store.finalize(parse_report(response.text))
+                    if poc_adapter and report["findings"]:
+                        try:
+                            poc_prompt = poc_adapter.build_prompt(
+                                context.root_path, args.cwe, report["findings"], directory
+                            )
+                            poc_request = AgentRequest(
+                                system_prompt="", user_prompt=poc_prompt, mcp_config=config_path,
+                                cwd=directory, model=config.agent.model,
+                                provider=config.agent.provider, base_url=config.agent.base_url,
+                                environment=agent_environment(config.agent),
+                            )
+                            poc_response = runtime.run(poc_request)
+                            poc_directory = directory / "poc"
+                            poc_directory.mkdir(parents=True, exist_ok=True)
+                            (poc_directory / "external-stage-response.md").write_text(
+                                poc_response.text, encoding="utf-8"
+                            )
+                            report["poc"] = {
+                                "status": "generated",
+                                "directory": str(poc_directory),
+                                "findingCount": len(report["findings"]),
+                            }
+                        except (AgentRuntimeError, ExternalPocError) as exc:
+                            report["poc"] = {
+                                "status": "failed", "reason": str(exc),
+                                "findingCount": len(report["findings"]),
+                            }
+                    elif poc_adapter:
+                        report["poc"] = {
+                            "status": "skipped_no_confirmed_findings",
+                            "findingCount": 0,
+                        }
+                    if poc_adapter:
+                        write_json(directory / "report.json", report)
                     report["artifactDirectory"] = str(directory)
                     reports.append(report)
                     LOG.info("分析结束 group=%s status=%s", context.analysis_group_id, report["analysisStatus"])
-                except (AgentRuntimeError, AgentReportError, OSError, ValueError) as exc:
+                except (AgentRuntimeError, AgentReportError, ExternalPocError, OSError, ValueError) as exc:
                     failed = True
                     error = {"analysisGroupID": context.analysis_group_id, "analysisStatus": "inconclusive",
                              "error": str(exc), "artifactDirectory": str(directory)}

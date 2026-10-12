@@ -89,6 +89,7 @@ class ArtifactStore:
         if len(binary_ids) > 1:
             ledger.add_unresolved("当前工具只加载 root binary，本地依赖及跨组件路径尚未覆盖")
         referenced = set()
+        invalid_references = set()
         objects = [*report["findings"], *report["coverage"].get("attackSurfaces", []),
                    *report["coverage"].get("functionModels", [])]
         for item in objects:
@@ -96,23 +97,39 @@ class ArtifactStore:
                 record = evidence.get(evidence_id)
                 if not record or (item.get("binaryID") and item["binaryID"] != record["binaryID"]):
                     ledger.add_unresolved(f"证据引用无法核验: {evidence_id}")
+                    invalid_references.add(evidence_id)
                 elif record["result"].get("isError"):
                     ledger.add_unresolved(f"引用的工具执行失败: {evidence_id}")
+                    invalid_references.add(evidence_id)
                 else:
                     referenced.add(evidence_id)
             if item.get("binaryID") and item["binaryID"] not in binary_ids:
                 ledger.add_unresolved(f"对象不在分析组内: {item['binaryID']}")
+        final_findings = []
         for finding in report["findings"]:
-            # 当前后端没有完整的跨函数、source 可控性和 sanitizer 证明。
-            if finding["status"] == "confirmed":
-                finding["status"] = "candidate"
-                finding.setdefault("limitations", []).append("当前后端未提供完整污点证明，不能确认漏洞")
-                ledger.add_unresolved(f"confirmed finding 已降级: {finding['functionID']}")
+            valid_evidence = all(
+                evidence_id in evidence
+                and evidence_id in referenced
+                and evidence_id not in invalid_references
+                and not evidence[evidence_id]["result"].get("isError")
+                for evidence_id in finding.get("evidenceIDs", ())
+            )
+            if not valid_evidence:
+                ledger.add_unresolved(
+                    f"finding 未达到最终状态门槛: {finding['binaryID']}/{finding['functionID']}"
+                )
+                continue
+            final_findings.append(finding)
+        report["findings"] = final_findings
         budgets = list((self.directory / "raw").glob("budget-*.json"))
         ledger.budget = {"maxCandidateFunctions": 128, "maxSinkQueries": 32,
                          "maxEvidenceBytesPerTool": MAX_JOURNAL_BYTES, "exhausted": bool(budgets)}
         if not report["coverage"].get("functionModels"):
             ledger.add_unresolved("缺少 source/sink 模型枚举记录")
+        report["unresolved"] = list(dict.fromkeys([
+            *(item if isinstance(item, str) else item["reason"] for item in report["unresolved"]),
+            *ledger.unresolved_items,
+        ]))
         report["coverageLedger"] = ledger.to_dict()
         report["analysisStatus"] = "complete" if ledger.finish_check()["canFinish"] else "inconclusive"
         report["analysisGroupID"] = group_id

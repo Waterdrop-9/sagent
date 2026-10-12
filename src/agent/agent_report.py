@@ -64,7 +64,7 @@ def validate_report(report: dict[str, Any]) -> None:
         if not isinstance(finding, dict):
             raise AgentReportError(f"{label} 必须是对象")
         _identity(finding, label)
-        if finding.get("status") not in {"confirmed", "candidate", "inconclusive", "rejected"}:
+        if finding.get("status") not in {"confirmed", "rejected"}:
             raise AgentReportError(f"{label} status 无效")
         if finding.get("confidence") not in {"low", "medium", "high"}:
             raise AgentReportError(f"{label} confidence 无效")

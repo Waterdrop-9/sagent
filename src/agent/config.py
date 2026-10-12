@@ -27,6 +27,13 @@ class AgentConfig:
 class Config:
     path: Path
     agent: AgentConfig
+    poc: PocConfig
+
+
+@dataclass(frozen=True)
+class PocConfig:
+    enabled: bool
+    prompt_dir: Path | None
 
 
 @dataclass(frozen=True)
@@ -50,8 +57,8 @@ def load_config(path: str | Path = "config.toml") -> Config:
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"TOML 格式错误: {config_path}: {exc}") from exc
 
-    if set(raw) != {"agent"} or not isinstance(raw.get("agent"), dict):
-        raise ConfigError("配置只允许包含 [agent] 表")
+    if set(raw) - {"agent", "poc"} or not isinstance(raw.get("agent"), dict):
+        raise ConfigError("配置只允许包含 [agent] 和可选的 [poc] 表")
     agent = raw["agent"]
     allowed = {"runtime", "provider", "model", "api_key", "base_url", "timeout"}
     unknown = set(agent) - allowed
@@ -79,6 +86,26 @@ def load_config(path: str | Path = "config.toml") -> Config:
     timeout = agent.get("timeout", 3600)
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError("agent.timeout 必须是有限正数")
+    poc_raw = raw.get("poc", {})
+    if not isinstance(poc_raw, dict):
+        raise ConfigError("poc 必须是表")
+    unknown_poc = set(poc_raw) - {"enabled", "prompt_dir"}
+    if unknown_poc:
+        raise ConfigError(f"未知 poc 配置项: {sorted(unknown_poc)}")
+    poc_enabled = poc_raw.get("enabled", False)
+    if type(poc_enabled) is not bool:
+        raise ConfigError("poc.enabled 必须是布尔值")
+    prompt_dir_value = poc_raw.get("prompt_dir")
+    if prompt_dir_value is not None and not isinstance(prompt_dir_value, str):
+        raise ConfigError("poc.prompt_dir 必须是字符串")
+    prompt_dir = None
+    if prompt_dir_value:
+        prompt_dir = Path(prompt_dir_value).expanduser()
+        if not prompt_dir.is_absolute():
+            prompt_dir = config_path.parent / prompt_dir
+        prompt_dir = prompt_dir.resolve()
+    if poc_enabled and prompt_dir is None:
+        raise ConfigError("poc.enabled=true 时必须配置 poc.prompt_dir")
     return Config(
         path=config_path,
         agent=AgentConfig(
@@ -89,6 +116,7 @@ def load_config(path: str | Path = "config.toml") -> Config:
             base_url=base_url,
             timeout=float(timeout),
         ),
+        poc=PocConfig(enabled=poc_enabled, prompt_dir=prompt_dir),
     )
 
 

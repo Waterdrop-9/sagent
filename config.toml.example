@@ -15,3 +15,8 @@ api_key = "sk-替换为你的 DeepSeek API Key"
 base_url = "https://api.deepseek.com/v1"
 # Agent 单次运行最长时间（秒）。
 timeout = 3600
+
+# 外部 PoC 阶段默认关闭。启用时只读取 prompt，不执行生成的 PoC。
+# [poc]
+# enabled = false
+# prompt_dir = "/path/to/external/config/foolish"

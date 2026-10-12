@@ -14,7 +14,8 @@ from agent.analysis_context import build_contexts
 from agent.artifacts import ArtifactStore
 from agent.coverage import AnalysisCoverageLedger, SurfaceRecord, ledger_from_report
 from agent.models import FunctionSecurityModel, PathQueryRecord
-from agent.plugins import Cwe78Plugin
+from agent.external_poc import ExternalPocAdapter
+from agent.plugins import Cwe78Plugin, plugin_for_cwe, supported_cwes
 
 
 class CoverageTests(unittest.TestCase):
@@ -75,16 +76,41 @@ class ReportTests(unittest.TestCase):
             parse_report(json.dumps({'findings': 'bad', 'nested': report}))
 
     def test_invalid_evidence_and_model(self):
-        finding = {'status': 'candidate', 'binaryID': 'a', 'functionID': 'f', 'confidence': 'low', 'evidenceIDs': 'fake'}
+        finding = {'status': 'candidate', 'binaryID': 'a', 'functionID': 'f', 'confidence': 'low', 'evidenceIDs': ['fake']}
         with self.assertRaises(AgentReportError):
             parse_report(json.dumps({'findings': [finding], 'coverage': {}, 'unresolved': []}))
         with self.assertRaises(AgentReportError):
             parse_report(json.dumps({'findings': [], 'unresolved': [], 'coverage': {'functionModels': [
                 {'binaryID': 'a', 'functionID': 'f', 'sinkParams': [True]}]}}))
 
+    def test_final_finding_status_has_no_intermediate_state(self):
+        for status in ('candidate', 'inconclusive'):
+            with self.assertRaises(AgentReportError):
+                parse_report(json.dumps({'findings': [{
+                    'status': status, 'binaryID': 'a', 'functionID': 'f',
+                    'confidence': 'low', 'evidenceIDs': ['ev'], 'limitations': [],
+                }], 'coverage': {}, 'unresolved': []}))
+
+    def test_all_supported_cwe_prompts_load(self):
+        self.assertEqual(set(supported_cwes()), {'CWE-78', 'CWE-134', 'CWE-190', 'CWE-606', 'CWE-415', 'CWE-416'})
+        for cwe in supported_cwes():
+            self.assertIn(cwe, plugin_for_cwe(cwe).system_prompt)
+
     def test_poc_prompt_is_not_loaded(self):
         self.assertNotIn('CWE-78 PoC 规则', Cwe78Plugin().system_prompt)
         self.assertNotIn('"confidence": "candidate', Cwe78Plugin().system_prompt)
+
+    def test_external_poc_adapter_only_accepts_confirmed_findings(self):
+        prompt_dir = Path('/Users/xpf/Desktop/二进制/vulnhunter_v2_local/config/foolish')
+        if not prompt_dir.is_dir():
+            self.skipTest('外部 prompt 目录不在当前机器')
+        adapter = ExternalPocAdapter(prompt_dir)
+        prompt = adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [
+            {'status': 'confirmed', 'binaryID': 'b', 'functionID': 'f', 'evidenceIDs': ['ev']}
+        ], Path('/tmp/artifacts'))
+        self.assertIn('03 搜查命令注入', prompt)
+        with self.assertRaises(ValueError):
+            adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
 
 
 class ArtifactTests(unittest.TestCase):
@@ -106,6 +132,16 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(report['coverageLedger']['pathStats']['total'], 0)
         self.assertIn('证据引用无法核验: invented', report['coverageLedger']['unresolvedItems'])
         self.assertTrue((self.store.directory / 'report.json').exists())
+
+    def test_invalid_confirmed_finding_is_removed_to_unresolved(self):
+        self.report['findings'] = [{
+            'status': 'confirmed', 'binaryID': self.context.root['binaryID'],
+            'functionID': 'f', 'confidence': 'high', 'evidenceIDs': ['invented'],
+            'limitations': [],
+        }]
+        report = self.store.finalize(self.report)
+        self.assertEqual(report['findings'], [])
+        self.assertTrue(any('finding 未达到最终状态门槛' in item for item in report['unresolved']))
 
     def test_resume_checks_group_and_preserves_original(self):
         self.store.finalize(self.report)
