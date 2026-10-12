@@ -70,8 +70,8 @@ confirmed finding 触发 PoC 时，目录应包含：
 ├── poc-response.md
 ├── poc-manifest.json
 └── poc/
-    ├── <functionID>.CWE-78.md   # PoC 报告（8 小节叙事）
-    └── <functionID>.CWE-78.py   # 验证脚本（借鉴 vh 的 poc/<name>.py）
+    ├── <functionID>.<CWE编号>.md   # PoC 报告（8 小节叙事，CWE 编号跟随 --cwe）
+    └── <functionID>.<CWE编号>.py   # 验证脚本（借鉴 vh 的 poc/<name>.py）
 ```
 
 `poc-manifest.json` 至少记录：
@@ -84,12 +84,12 @@ confirmed finding 触发 PoC 时，目录应包含：
   "findingIDs": ["<binaryID>/<functionID>"],
   "request": "poc-request.md",
   "response": "poc-response.md",
-  "files": ["<functionID>.CWE-78.md", "<functionID>.CWE-78.py"],
+  "files": ["<functionID>.<CWE编号>.md", "<functionID>.<CWE编号>.py"],
   "executed": false
 }
 ```
 
-`files` 由 CLI 在 PoC 阶段结束后自动清点 `poc/` 里的普通文件生成，是交付物索引；手动查看结果先读它，再按 `poc/<文件名>` 打开报告和脚本。
+`files` 由 CLI 在 PoC 阶段结束后自动清点 `poc/` 里的普通文件生成，是交付物索引；手动查看结果先读它，再按 `poc/<文件名>` 打开报告和脚本。PoC 调用失败时同样写 `poc-manifest.json`，字段形状与成功一致（`status` 为 `failed`、`files` 为空列表，另加 `error` 字段），消费方不会遇到缺失字段。
 
 没有 confirmed finding 时不创建 PoC 请求，报告应记录：
 
@@ -127,7 +127,8 @@ PoC 阶段模板必须描述：只处理 confirmed findings、引用已有 evide
 - fake OpenCode 全链路测试通过：confirmed 触发时 run 级 `poc-request.md`/`poc-response.md`/`poc-manifest.json` 落盘、manifest 结构正确（含 `files` 交付物索引）、cwd 是 `<run>/poc/`、`poc/` 目录里只有模型生成的报告和验证脚本；无 confirmed 时报告 `skipped_no_confirmed_findings` 且不建 `poc/`。
 - confirmed fixture（`doSystem`，5 个真实 evidenceID）已通过本地证据门禁，最终 run 产物在 `tests/20261012_02_PoC阶段_r01/产物/group-6aeb5375a9c368ad/run-5e3cec028963/`（此前轮次归档在同级 `历史轮次/`）。
 - 真实 OpenCode PoC 请求已成功（最终模板 + 干净布局）：模型只引用已有 evidenceID，生成 `poc/doSystem.CWE-78.md`（8 小节：基本信息/触发条件/输入形态/调用路径/关键参数/人工验证步骤/证据引用/限制与不确定性，人工验证步骤全部标注“需人工执行”）和可运行的 `poc/doSystem.CWE-78.py`（--host/--port/--command 命令行参数、默认端口 8002=0x1f42 有证据出处、默认只发无害命令 `id`、带超时与异常处理、仅供授权隔离环境由人工执行）；文件名不再带 `.poc`；`poc-manifest.json` 记录 `executed: false` 和 `files` 清单；未执行样本。
-- 真实请求暴露并修复了一个运行时缺陷：调用方 shell 携带过期 `PWD`（指向仓库根）时 opencode 项目发现失效，报 `Model unavailable`；`_CliRuntime.run` 现在把 `PWD` 修正为实际 cwd，并有回归测试。
+- 真实请求暴露并修复了一个运行时缺陷：调用方 shell 携带过期 `PWD`（指向仓库根）时 opencode 项目发现失效，报 `Model unavailable`；`_CliRuntime.run` 现在把 `PWD` 修正为实际 cwd，回归测试已进入版本库（`tests/20261012_01_覆盖门禁_r01/test_workflow.py` 的 `RuntimeEnvTests`）。
+- code review 清理（2026-10-13）：PoC 外部调用补全开始/结束/失败日志；`poc-manifest.json` 成功/失败形态统一（`files` 恒存在，失败为空）；术语统一为"独立的 PoC 阶段"（去掉"外部"，含 docs/06）；`{created_at}` 改填真实时间戳；模板文件名改为 `<functionID>.<CWE编号>.md/.py`（`{cwe_id}` 参数化，跟随 `--cwe`）；`docs/11` 列入 `docs/文档索引.md`；`docs/11` 与手册补失败 manifest 说明。
 - 真实 `server` demo 的静态路径后端曾返回 `path_found`，但 RDA 只提供函数内定义链；demo 自身最终无 confirmed finding，PoC 为 `skipped_no_confirmed_findings`。验证“成功生成 PoC”走 confirmed fixture 路径。
 
 ## 恢复后的检查顺序

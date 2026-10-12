@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Mapping, Protocol
+
+LOG = logging.getLogger(__name__)
 
 
 class AgentRuntimeError(RuntimeError):
@@ -211,8 +214,9 @@ class OpenCodeRuntime(_CliRuntime):
                 # 配置是我们写进去的：连空目录一起清掉，保持 cwd（如 poc/）干净。
                 try:
                     config_dir.rmdir()
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # 目录里出现模型写入的其它文件时清不掉，属于正常情况，只记 debug。
+                    LOG.debug("清理 .opencode 目录失败: %s", exc)
             else:
                 config_path.write_bytes(previous)
 

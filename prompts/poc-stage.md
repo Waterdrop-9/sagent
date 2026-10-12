@@ -28,7 +28,7 @@
 
 借鉴 vulnhunter 的 poc/<vuln-name>.py 思想，给每个 finding 配一个可直接运行的验证脚本：
 
-- 文件名 `<functionID>.CWE-78.py`，Python 3，可直接运行，运行方式写在报告第 6 节。
+- 文件名 `<functionID>.{cwe_id}.py`，Python 3，可直接运行，运行方式写在报告第 6 节。
 - 目标主机和端口通过命令行参数传入（如 `--host`、`--port`），默认值写在文件头部常量里，并注释默认值来源（finding/evidence，例如端口 `0x1f42` = 8002）。
 - 载荷按第 3 节的输入形态构造：先发操作码（如 `"\x00\x10"`），再发命令字符串（示例只用无害命令，如 `id`、`whoami`，可加 shell 元字符示例但不要包含破坏性命令）。
 - 发送后接收响应并打印；脚本末尾根据"是否收到命令执行输出"给出观察提示（如"若返回 uid=… 则说明命令被执行"），由人工判定，脚本不自行宣称漏洞成立。
@@ -37,7 +37,7 @@
 
 ## 产物要求
 
-- 每个 finding 一份报告（`<functionID>.CWE-78.md`）加一个验证脚本（`<functionID>.CWE-78.py`），写入当前工作目录（也就是 PoC 阶段的 poc/ 目录），文件名以 functionID 开头。
+- 每个 finding 一份报告（`<functionID>.{cwe_id}.md`）加一个验证脚本（`<functionID>.{cwe_id}.py`），写入当前工作目录（也就是 PoC 阶段的 poc/ 目录），文件名以 functionID 开头。
 - poc/ 目录里只写 PoC 报告和验证脚本，不写笔记、日志、配置等其它文件，不创建子目录。
 - 每个文件开头写明 findingID（binaryID/functionID）与引用的 evidenceIDs。
 - 验证脚本只生成不执行；由人工在隔离环境运行。

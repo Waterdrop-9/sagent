@@ -26,4 +26,4 @@ YYYYMMDD_前两位序号_实验目的_rxx
 
 - `tests/20261010_01_elf依赖检索_r01/`：使用 `data/01_simple_demo/` 验证 ELF 发现、根目标识别和依赖分组。
 - `tests/20261012_01_覆盖门禁_r01/`：使用真实 `server` 联调产物和最小结构化输入验证覆盖门禁、证据引用、预算和恢复；不执行样本、不生成 PoC。
-- `tests/20261012_02_PoC阶段_r01/`：fake OpenCode 端到端验证 PoC 阶段（run 级 poc-request/response/manifest、干净 poc/、cwd、skipped 分支、manifest `files` 交付物索引）；confirmed fixture（真实 evidenceID）通过证据门禁后做真实 OpenCode PoC 请求（vulnhunter 风格 8 小节报告 + 可运行验证脚本，命名 `<functionID>.CWE-78.md`/`.py`）；最终产物在 `产物/group-6aeb5375a9c368ad/run-5e3cec028963/`，此前轮次归档在同级 `历史轮次/`；不执行样本。
+- `tests/20261012_02_PoC阶段_r01/`：fake OpenCode 端到端验证 PoC 阶段（run 级 poc-request/response/manifest、干净 poc/、cwd、skipped 分支、manifest `files` 交付物索引）；confirmed fixture（真实 evidenceID）通过证据门禁后做真实 OpenCode PoC 请求（vulnhunter 风格 8 小节报告 + 可运行验证脚本，命名参数化 `<functionID>.<CWE编号>.md`/`.py`）；最终产物在 `产物/group-6aeb5375a9c368ad/run-d4832cfc3a71/`，此前轮次归档在同级 `历史轮次/`；不执行样本。

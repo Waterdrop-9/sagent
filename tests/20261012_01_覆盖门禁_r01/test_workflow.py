@@ -16,7 +16,7 @@ from agent.coverage import AnalysisCoverageLedger, SurfaceRecord, ledger_from_re
 from agent.models import FunctionSecurityModel, PathQueryRecord
 from agent.poc_stage import PocStageAdapter
 from agent.plugins import Cwe78Plugin, plugin_for_cwe, supported_cwes
-from agent.runtime import AgentRequest, OpenCodeRuntime
+from agent.runtime import AgentRequest, OpenCodeRuntime, _CliRuntime
 
 
 class CoverageTests(unittest.TestCase):
@@ -131,6 +131,12 @@ class ReportTests(unittest.TestCase):
         self.assertIn('仅供授权环境测试', prompt)
         self.assertIn('超时和异常处理', prompt)
         self.assertIn('验证脚本只生成不执行', prompt)
+        # --cwe 参数化：文件名里的 CWE 编号跟随本次运行，不能硬编码 CWE-78。
+        prompt_cwe134 = adapter.build_prompt(Path('/tmp/server'), 'CWE-134', [
+            {'status': 'confirmed', 'binaryID': 'b', 'functionID': 'f', 'evidenceIDs': ['ev']}
+        ], Path('/tmp/artifacts'))
+        self.assertIn('<functionID>.CWE-134.py', prompt_cwe134)
+        self.assertIn('<functionID>.CWE-134.md', prompt_cwe134)
         with self.assertRaises(ValueError):
             adapter.build_prompt(Path('/tmp/server'), 'CWE-78', [], Path('/tmp/artifacts'))
         with self.assertRaises(ValueError):
@@ -215,6 +221,31 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertIn(records[0]['evidenceID'], response['result']['content'][-1]['text'])
         self.assertEqual(records[0]['result']['content'][0]['text'], 'observed')
+
+
+class _ProbeRuntime(_CliRuntime):
+    """把命令收敛成打印 PWD 的探针脚本，用来验证环境修复。"""
+
+    def build_command(self, request: AgentRequest) -> tuple[str, ...]:
+        return (self.executable,)
+
+
+class RuntimeEnvTests(unittest.TestCase):
+    def test_stale_pwd_is_fixed_to_actual_cwd(self):
+        """调用方 shell 可能携带过期的 PWD；opencode 等项目发现依赖它。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / 'sub'
+            workdir.mkdir()
+            probe = Path(tmp) / 'probe.sh'
+            probe.write_text('#!/bin/sh\nprintf "PWD=$PWD\\n"\n')
+            probe.chmod(0o755)
+            runtime = _ProbeRuntime(executable=str(probe), timeout=5)
+            response = runtime.run(AgentRequest(
+                system_prompt='', user_prompt='', cwd=workdir,
+                model=None, provider=None, mcp_config=None,
+                environment={'PWD': '/stale/pwd'},
+            ))
+        self.assertIn(f'PWD={workdir.resolve()}', response.text)
 
 
 if __name__ == '__main__':

@@ -7,18 +7,56 @@ import json
 import logging
 import shutil
 import tempfile
+import time
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from .analysis_context import AnalysisContextError, build_contexts, render_contexts
 from .agent_report import AgentReportError, MAX_REPORT_BYTES, parse_report
 from .artifacts import ArtifactStore, write_json
-from .config import ConfigError, agent_environment, load_config, load_ghidra_config
+from .config import AgentConfig, ConfigError, agent_environment, load_config, load_ghidra_config
 from .poc_stage import PocStageAdapter, PocStageError
 from .plugins import plugin_for_cwe, supported_cwes, write_runtime_config
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
 
 LOG = logging.getLogger(__name__)
+
+
+def _agent_request(
+    agent: AgentConfig,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    mcp_config: Path,
+    cwd: Path,
+) -> AgentRequest:
+    """按本地配置组装一次 Agent 请求；分析与 PoC 两个阶段共用同一套填充逻辑。"""
+    return AgentRequest(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        mcp_config=mcp_config,
+        cwd=cwd,
+        model=agent.model,
+        provider=agent.provider,
+        base_url=agent.base_url,
+        environment=agent_environment(agent),
+    )
+
+
+def _poc_manifest_base(
+    confirmed_findings: list[dict[str, Any]], files: list[str] | None = None
+) -> dict[str, Any]:
+    """PoC 账目的公共字段；files 是 poc/ 交付物索引，失败时为 []。"""
+    return {
+        "stage": "poc",
+        "findingCount": len(confirmed_findings),
+        "findingIDs": [
+            f"{item['binaryID']}/{item['functionID']}" for item in confirmed_findings
+        ],
+        "files": files if files is not None else [],
+        "executed": False,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cwe", choices=supported_cwes(), default="CWE-78", help="本次运行的 CWE 类型")
     parser.add_argument("--output", type=Path, default=Path("analysis"), help="产物根目录")
     parser.add_argument("--resume", type=Path, help="此前单个分析组的运行目录")
-    parser.add_argument("--poc", action="store_true", help="对 confirmed findings 接入外部 PoC 阶段")
+    parser.add_argument("--poc", action="store_true", help="对 confirmed findings 接入独立的 PoC 阶段")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -75,11 +113,12 @@ def main(argv: list[str] | None = None) -> int:
                     artifact_dir=directory, analysis_group_id=context.analysis_group_id,
                     binary_id=context.root["binaryID"],
                 )
-                request = AgentRequest(
-                    system_prompt=plugin.system_prompt, user_prompt=prompt,
-                    mcp_config=config_path, cwd=Path.cwd(), model=config.agent.model,
-                    provider=config.agent.provider, base_url=config.agent.base_url,
-                    environment=agent_environment(config.agent),
+                request = _agent_request(
+                    config.agent,
+                    system_prompt=plugin.system_prompt,
+                    user_prompt=prompt,
+                    mcp_config=config_path,
+                    cwd=Path.cwd(),
                 )
                 if args.dry_run:
                     preview = {"command": runtime.build_command(request),
@@ -106,6 +145,11 @@ def main(argv: list[str] | None = None) -> int:
                         poc_directory = directory / "poc"
                         poc_directory.mkdir(parents=True, exist_ok=True)
                         try:
+                            started = time.monotonic()
+                            LOG.info(
+                                "开始 PoC 阶段 group=%s findings=%d cwd=%s",
+                                context.analysis_group_id, len(confirmed_findings), poc_directory,
+                            )
                             poc_prompt = poc_adapter.build_prompt(
                                 context.root_path, args.cwe, confirmed_findings, poc_directory
                             )
@@ -114,11 +158,12 @@ def main(argv: list[str] | None = None) -> int:
                             (directory / "poc-request.md").write_text(
                                 poc_prompt, encoding="utf-8"
                             )
-                            poc_request = AgentRequest(
-                                system_prompt="", user_prompt=poc_prompt, mcp_config=config_path,
-                                cwd=poc_directory, model=config.agent.model,
-                                provider=config.agent.provider, base_url=config.agent.base_url,
-                                environment=agent_environment(config.agent),
+                            poc_request = _agent_request(
+                                config.agent,
+                                system_prompt="",
+                                user_prompt=poc_prompt,
+                                mcp_config=config_path,
+                                cwd=poc_directory,
                             )
                             poc_response = runtime.run(poc_request)
                             (directory / "poc-response.md").write_text(
@@ -130,35 +175,38 @@ def main(argv: list[str] | None = None) -> int:
                                 path.name for path in poc_directory.iterdir()
                                 if path.is_file()
                             )
-                            write_json(directory / "poc-manifest.json", {
-                                "stage": "poc",
+                            manifest = _poc_manifest_base(confirmed_findings, poc_files)
+                            manifest.update({
                                 "runtime": poc_response.runtime,
-                                "findingCount": len(confirmed_findings),
-                                "findingIDs": [
-                                    f"{item['binaryID']}/{item['functionID']}"
-                                    for item in confirmed_findings
-                                ],
                                 "request": "poc-request.md",
                                 "response": "poc-response.md",
-                                "files": poc_files,
-                                "executed": False,
                             })
+                            write_json(directory / "poc-manifest.json", manifest)
                             report["poc"] = {
                                 "status": "generated",
                                 "directory": str(poc_directory),
                                 "findingCount": len(confirmed_findings),
-                                "files": poc_files,
                             }
+                            LOG.info(
+                                "PoC 阶段结束 group=%s 耗时=%.1fs files=%d",
+                                context.analysis_group_id, time.monotonic() - started, len(poc_files),
+                            )
                         except (AgentRuntimeError, PocStageError) as exc:
+                            # 失败也写 run 级账目，且字段形状与成功一致（files 为空），
+                            # 消费方按 files 索引时不会遇到缺失字段。
                             write_json(directory / "poc-manifest.json", {
-                                "stage": "poc", "status": "failed",
-                                "findingCount": len(confirmed_findings),
-                                "error": str(exc), "executed": False,
+                                **_poc_manifest_base(confirmed_findings),
+                                "status": "failed",
+                                "error": str(exc),
                             })
                             report["poc"] = {
                                 "status": "failed", "reason": str(exc),
                                 "findingCount": len(confirmed_findings),
                             }
+                            LOG.error(
+                                "PoC 阶段失败 group=%s reason=%s",
+                                context.analysis_group_id, exc,
+                            )
                     elif poc_adapter:
                         report["poc"] = {
                             "status": "skipped_no_confirmed_findings",
