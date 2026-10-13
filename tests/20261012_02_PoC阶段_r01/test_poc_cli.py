@@ -489,5 +489,51 @@ prompt_file = "{ROOT / 'prompts/poc-stage.md'}"
         self.assertEqual(report["findings"][0]["status"], "confirmed")
 
 
+class RiskChainsCliTests(unittest.TestCase):
+    """阶段 M 编排：每个 run 目录先物化候选链再调用 Agent（执行者分层）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.output = base / "out"
+        self.config = base / "config.toml"
+        self.config.write_text(
+            f"""[agent]
+runtime = "opencode"
+provider = "deepseek"
+model = "deepseek-flash"
+api_key = "test-key"
+base_url = "https://example.invalid/v1"
+timeout = 300
+
+[poc]
+enabled = false
+prompt_file = "{ROOT / 'prompts/poc-stage.md'}"
+""",
+            encoding="utf-8",
+        )
+
+    def test_run_dir_materializes_candidate_chains_before_agent(self):
+        result = run_cli(self.output, self.config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        runs = list((self.output / EXPECTED_GROUP).glob("run-*"))
+        self.assertEqual(len(runs), 1)
+        doc = json.loads((runs[0] / "risk-chains.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc["phase"], "M")
+        self.assertEqual(doc["cwe"], "CWE-78")
+        # 无 angr 环境退化为导入表/PLT 链：libauth 的 system 导入必然产生候选。
+        chains = doc["chains"]
+        self.assertTrue(chains, "阶段 M 应至少物化一条候选链")
+        self.assertTrue(
+            any(
+                chain["sink"]["binary"] == "libauth.so" and chain["sink"]["symbol"] == "system"
+                for chain in chains
+            ),
+            f"缺少 libauth system 候选链: {[c['sink'] for c in chains]}",
+        )
+        self.assertIn("候选链物化 chains=", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

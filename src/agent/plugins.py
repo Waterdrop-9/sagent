@@ -54,6 +54,7 @@ class MarkdownCwePlugin:
                 "attack-surface.md",
                 "source-sink-model.md",
                 "coverage-rules.md",
+                "per-chain-judgment.md",
                 "report-schema.md",
             )
         )

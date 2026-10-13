@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import subprocess
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -27,6 +29,7 @@ from .artifacts import ArtifactStore, write_json
 from .config import AgentConfig, ConfigError, agent_environment, load_config, load_ghidra_config
 from .poc_stage import PocStageAdapter, PocStageError
 from .plugins import plugin_for_cwe, supported_cwes, write_runtime_config
+from .risk_chains import RiskChainsError, run_phase_m
 from .runtime import AgentRuntimeError, AgentRequest, runtime_from_name
 
 LOG = logging.getLogger(__name__)
@@ -102,8 +105,86 @@ def _confirmation_appendix(mode: str) -> str:
     return "\n\n" + section.strip()
 
 
-def _poc_manifest_base(
-    confirmed_findings: list[dict[str, Any]], files: list[str] | None = None
+_CHAINS_SUMMARY_BUDGET = 16 * 1024
+
+
+def _run_phase_m(context: AnalysisGroupContext, cwe: str, directory: Path) -> dict[str, Any] | None:
+    """阶段 M 候选链物化：优先用带 angr 的 AGENT_PATH_BACKEND_PYTHON 子进程。
+
+    子进程拿到 callgraph 级机械能力（根二进制 CFG 回溯）；该解释器缺失或失败时
+    退回进程内模式（仅导入表/PLT 链）。任何失败都只降级不中断：Agent 仍在无候选链
+    摘要的情况下工作（与旧行为一致），风险链文件不存在或损坏即跳过。
+    """
+    source_root = Path(__file__).resolve().parents[1]
+    risk_chains_file = directory / "risk-chains.json"
+    backend_python = os.environ.get("AGENT_PATH_BACKEND_PYTHON")
+    try:
+        if backend_python:
+            with tempfile.TemporaryDirectory(prefix="phase-m-") as temporary:
+                tmp = Path(temporary)
+                context_file = tmp / "context.json"
+                paths_file = tmp / "paths.json"
+                context_file.write_text(
+                    json.dumps(context.to_dict(), ensure_ascii=False), encoding="utf-8"
+                )
+                paths_file.write_text(
+                    json.dumps(
+                        {k: str(v) for k, v in context.component_paths.items()},
+                        ensure_ascii=False,
+                    ),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        backend_python, "-m", "agent.phase_m_worker",
+                        "--context-json", str(context_file),
+                        "--root-path", str(context.root_path),
+                        "--cwe", cwe,
+                        "--workdir", str(directory),
+                        "--component-paths-json", str(paths_file),
+                    ],
+                    capture_output=True, text=True, timeout=600,
+                    cwd=source_root, env={**os.environ, "PYTHONPATH": str(source_root)},
+                )
+                if completed.returncode != 0:
+                    raise RuntimeError(completed.stderr.strip()[-500:] or "phase_m_worker 退出码非 0")
+        else:
+            run_phase_m(
+                context, cwe, directory,
+                component_paths=context.component_paths or None,
+            )
+        doc = json.loads(risk_chains_file.read_text(encoding="utf-8"))
+        stats = doc.get("stats", {})
+        LOG.info(
+            "候选链物化 chains=%d evidence=%d pathQueries=%d file=%s",
+            len(doc.get("chains", [])), stats.get("evidenceCount", 0),
+            stats.get("pathQueries", 0), risk_chains_file.name,
+        )
+        return doc
+    except (OSError, ValueError, subprocess.TimeoutExpired, RiskChainsError, RuntimeError) as exc:
+        LOG.warning(
+            "候选链物化失败（无候选链摘要继续分析）reason=%s",
+            str(exc).splitlines()[0],
+        )
+        return None
+
+
+def _chains_summary_appendix(doc: dict[str, Any]) -> str:
+    """把阶段 M 候选链注入 user prompt；超过预算截断，截断后的链不可判 confirmed。"""
+    text = json.dumps({"candidateChains": doc.get("chains", [])}, ensure_ascii=False)
+    truncated = False
+    if len(text.encode()) > _CHAINS_SUMMARY_BUDGET:
+        truncated = True
+        text = text[:_CHAINS_SUMMARY_BUDGET]
+    return (
+        "\n\n## 候选链摘要（阶段 M 机械物化，供逐链判定）\n"
+        "以下每条链都必须按 per-chain-judgment.md 的协议逐一判定；"
+        "机械来源（callgraph/import_table/plt_link）不可直接当作确认依据。\n"
+        "```json\n" + text + ("\n（已截断：未列出的链不可判 confirmed，证据不足记 unresolved）" if truncated else "") + "\n```"
+    )
+
+
+def _poc_manifest_base(    confirmed_findings: list[dict[str, Any]], files: list[str] | None = None
 ) -> dict[str, Any]:
     """PoC 账目的公共字段；files 是 poc/ 交付物索引，失败时为 []。"""
     return {
@@ -179,7 +260,19 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
             LOG.info("断点续跑：已有 Agent 输出，直接重新 finalize（不重复调用 Agent）")
         else:
             resume_text = store.resume_context(context.to_dict())
+    # 阶段 M：候选链物化在前、Agent 分析在后（执行者分层）。复用归档报告时跳过；
+    # resume_text 路径复用已有 risk-chains.json，不重跑物化。
+    risk_chains_doc: dict[str, Any] | None = None
+    if resumed_report is None:
+        if not (directory / "risk-chains.json").exists():
+            _run_phase_m(context, cwe, directory)
+        try:
+            risk_chains_doc = json.loads((directory / "risk-chains.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            risk_chains_doc = None
     prompt = plugin.build_user_prompt(goal, context.root_path, render_contexts((context,)))
+    if risk_chains_doc:
+        prompt += _chains_summary_appendix(risk_chains_doc)
     if resume_text:
         prompt += "\n\n上次运行摘要（继续核验未完成项，不可当作新增工具事实）：\n" + resume_text
     run_log = _attach_run_log(directory)
@@ -403,6 +496,7 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
                         "goal": goal,
                         "poc": poc_adapter is not None,
                         "confirmation": confirmation,
+                        "riskChains": True,
                         "report": report,
                     },
                 )
@@ -512,8 +606,8 @@ def main(argv: list[str] | None = None) -> int:
         skipped_reports = []
         for context in contexts:
             for cwe in cwes:
-                # 任务级断点：同一 --output 目录重跑时，已完成（同 goal、同 poc 开关）
-                # 的 (分析组, CWE) 任务直接复用归档报告，不重复调用 Agent。
+                # 任务级断点：同一 --output 目录重跑时，已完成（同 goal、同 poc 开关、
+                # 同确认标准、且经历过阶段 M 物化）的 (分析组, CWE) 任务直接复用归档报告。
                 checkpoint = args.output.resolve() / context.analysis_group_id / ("completed-" + cwe + ".json")
                 if not args.resume and not args.force and checkpoint.exists():
                     try:
@@ -524,6 +618,7 @@ def main(argv: list[str] | None = None) -> int:
                         data.get("goal") == args.goal
                         and data.get("poc") == poc_requested
                         and data.get("confirmation") == args.confirmation
+                        and data.get("riskChains") is True
                         and "report" in data
                     ):
                         LOG.info(

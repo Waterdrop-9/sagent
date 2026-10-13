@@ -18,125 +18,67 @@
 
 ## 搜查清单
 
-对 `clues/dangerous-sinks.md` 里出现的每个含 `system/popen/execve/execvp/system_lp/doSystem/…` 的函数，以及 `notes/02-attack-surface.md` 中流向这些 sink 的路径，**必须每个都给出明确结论**。
+对阶段 M 候选链摘要里的每一条链，以及工具枚举出的全部命令类 sink 调用点
+（`system/popen/exec*` 及自定义 wrapper，如 `doSystem`），**必须每个都给出明确结论**。
+候选链摘要中没有覆盖的 sink 也要主动枚举，不得遗漏。
 
 ## 步骤
 
-对每个候选函数：
-
-1. **定位 sink 点**：Grep `decompile/*.c` 找到 `system(`、`popen(`、`exec*(` 的调用处
-2. **分析参数构造**：
-   - 完全字符串常量 → 无漏洞，说明清楚
+1. **逐链判定**：按 per-chain-judgment.md 的协议，对候选链摘要中每一条链给出
+   confirmed / rejected / unresolved 的明确 verdict；机械来源（callgraph/import_table/plt_link）
+   不是确认依据，每一跳仍需要反汇编调用点证据。
+2. **sink 枚举兜底**：用 GhidraMCP 找全 `system/popen/exec*` 调用点（含 fork+execve
+   两步模式、函数指针调用），对照候选链清单，未出现的单独判定。
+3. **分析参数构造**：
+   - 完全字符串常量 → 无漏洞，写清楚（如 `system("mkdir -p ...")` 启动阶段常量 → rejected）
    - 含格式化（`sprintf`/`snprintf` 拼接）→ 检查拼接的变量来源
    - 直接用参数 → 检查调用者传入的参数来源
-3. **追调用链到网络输入**：
-   - 向上追 caller（用 `function_index.txt` 找 callers）
-   - 直到追到一个 handler（在 `notes/01-protocol.md` 里有记录），或明确不在 handler 链路上
-4. **检查过滤/防护**：
-   - 白名单校验？
-   - shell 元字符过滤？（`;` `|` `&` `` ` `` `$(` ）
-   - 长度限制？
-5. **判定可达性**：从哪个 opcode/命令可触发？需要认证吗？
+4. **追调用链到网络输入**：沿候选链 hops 向上追 caller（GhidraMCP 交叉引用），
+   直到追到网络入口（recv 等），或明确不在网络链路上。
+5. **检查过滤/防护**：白名单校验？shell 元字符过滤（`;` `|` `&` `` ` `` `$(`）？长度限制？
+6. **驳斥清单（仅 confirmed 候选必须逐项通过）**：见 per-chain-judgment.md 的
+   R1 source 可控性 / R2 逐跳传播 / R3 清洗约束 / R4 构造与影响。每项最多一次补充查询。
 
 ## 判定规则
 
-- ✅ **确认漏洞**：网络输入可到达 + 过滤缺失或可绕过 + 可达性明确
-- ❌ **无漏洞**：路径被常量/白名单/严格过滤阻断，或根本不在网络可达链路上
-- ❓ **疑似/待定**：某一环节未确认（如某 SO 里的校验函数未分析）→ 记 notes，不创建 vulns
+- ✅ **confirmed**：网络输入可到达 + 过滤缺失或可绕过 + 驳斥清单 R1-R4 全部通过，
+  且符合 confirmation-policy.md 的确认标准（引用链级证据时 confirmationBasis=reference-chain）。
+- ❌ **rejected**：有明确反证（常量、路径不可达、有效校验、清洗约束、启动阶段执行），
+  反证写进 finding 的 limitations。
+- ❓ **unresolved**：某一环节证据不足（如依赖库内部未分析、跨组件未覆盖）→ 写 unresolved，
+  说明缺哪一类证据，保留 evidenceIDs。
 
 ## 产出约束
 
-### 有漏洞
-
-每个漏洞创建一个文件：`vulns/VULN-NNN-cmdinj-<函数名简称>.md`
-
-格式（必须包含以下章节）：
-
-```markdown
-# 命令注入：<简短描述>
-
-## 基本信息
-- 触发函数：`<Mangled Name>` @ 0x00XXXXXX
-- 漏洞类型：command_injection
-- 严重度：critical / high
-- 置信度：high / medium / low
-- 网络可利用：是
-- 触发地址（sink 调用点）：0x00XXXXXX
-
-## 调用链
-
-```
-网络入口 (opcode 0xXXXX)
-  → handleXxx @ 0xYYY
-    → funcA @ 0xZZZ
-      → system(cmd, ...)  [sink @ 0x...]
-```
-
-## 数据流
-
-- 输入来源：recv(sockfd, ..., N)
-- 经过：...
-- 到达 sink：`system("cmd " + user_input)`
-
-## 关键代码（反编译片段）
-
-(贴出 2-20 行关键代码)
-
-## 修复建议
-```
-
-### 无漏洞/疑似
-
-统一写到 `notes/03-cmd-injection.md`，格式：
-
-```markdown
-## 已分析（无漏洞）
-
-- `funcA` @ 0x... — popen 参数是常量 "ls -la"，不可注入
-- `funcB` @ 0x... — 实际不在网络链路上，调用者是本地启动脚本
-
-## 疑似（需人工复审）
-
-- `funcC` @ 0x... — 拼接路径后 system，但路径来源追到 libauth.so 未分析
-
-## 覆盖清单
-
-对比 clues/dangerous-sinks.md 里所有命令类 sink：
-- [x] system @ 0x... (funcA)
-- [x] popen @ 0x... (funcB)
-- [ ] execve @ 0x... (funcD) — 未分析，原因...
-```
+最终 JSON 是唯一产出（见「Sagent 最终输出规则」）。不创建 vulns/notes/clues 目录文件。
 
 
 ## 硬性前置要求（所有漏洞类型通用）
 
 ### 1. 网络可达性是必要条件
 
-本系统**只收录能通过网络请求触发的漏洞**。对每个候选漏洞，必须从网络入口（`notes/01-protocol.md` 的 dispatch 表）出发，逐跳证明可达。
+本系统**只收录能通过网络请求触发的漏洞**。对每个候选漏洞，必须从网络入口
+（recv/read 等输入源）出发，逐跳证明可达。
 
-- 如果路径追不回网络入口（例如只在本地启动时调用一次，或只被某个单元测试调用）→ **不创建 vulns 文件**，在对应的 notes 里记"本地可达但非网络可达"
-- 如果前置需要认证但认证本身无漏洞 → 仍算网络可达，但严重度降级，并在 `基本信息` 中明确"需认证"
+- 如果路径追不回网络入口（例如只在本地启动时调用一次）→ 记为 rejected，limitations 写"本地可达但非网络可达"
+- 如果前置需要认证但认证本身无漏洞 → 仍算网络可达，但严重度降级，并在 limitations 中明确"需认证"
 
 ### 2. 去重：同一漏洞不写两份报告
 
-**"同一漏洞"判定标准**：**sink 调用点地址相同**（例如同一处 `popen` 或同一处 `strcpy`），哪怕从不同入口/不同上游函数到达。
+**"同一漏洞"判定标准**：**sink 调用点地址相同**（例如同一处 `popen` 或同一处 `strcpy`），
+哪怕从不同入口/不同上游函数到达。
 
-- 第一次发现：创建 `vulns/VULN-NNN-*.md`
-- 发现"另一条调用链也能到达同一 sink"：**不创建新文件**，而是在已有的 vulns 文件的 `## 调用链` 章节里**追加一条入口路径**
-- 判定前**必须先 Grep 现有 `vulns/` 目录**，确认 sink 地址是否已被记录
+- 发现"另一条调用链也能到达同一 sink"：**不创建新 finding**，而是在已有 finding 的 limitations/调用链描述里追加一条入口路径
+- 判定前先核对已写出的 finding 列表，确认 sink 地址是否已被记录
 
 **例外**：同一函数但不同 sink 点（例如同一函数里既有 `system` 又有 `fopen` 两处漏洞）算两个漏洞，各写一份。
 
-### 3. 不破坏已有的 vulns 文件
+### 3. 反作弊声明
 
-更新已有漏洞文件时，**只追加**调用链和数据流信息，不修改原有章节的事实描述。
-
-## 反作弊声明
-
-- `clues/dangerous-sinks.md` 里每个命令类 sink **必须**在产出中被引用（有漏洞或在"已分析"列表）
-- "无漏洞"结论必须给出具体理由（哪一步阻断了），不能只说"无漏洞"
+- 每个命令类 sink **必须**在产出中被引用（有漏洞或在 unresolved 中说明未分析原因）
+- "rejected" 结论必须给出具体理由（哪一步阻断了），不能只说"无漏洞"
 - 调用链必须**自下而上完整**：从 sink 追到网络入口，中间每一跳都要有函数名和地址
-- 没有确定可达性就写"疑似"，不要直接报漏洞
+- 没有确定可达性就写 unresolved，不要直接报 confirmed
 
 ## Sagent 工具与证据规则
 

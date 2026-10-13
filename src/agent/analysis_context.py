@@ -17,7 +17,11 @@ class AnalysisContextError(ValueError):
 
 @dataclass(frozen=True)
 class AnalysisGroupContext:
-    """一个分析组的紧凑、可序列化摘要。"""
+    """一个分析组的紧凑、可序列化摘要。
+
+    component_paths 是 binaryID → 磁盘绝对路径 的映射（含 root 自身，见 elf.py
+    的组件构造怪癖）；不进入 to_dict，仅供本地阶段（阶段 M 候选链物化）寻址文件。
+    """
 
     analysis_group_id: str
     root: dict[str, object]
@@ -25,6 +29,7 @@ class AnalysisGroupContext:
     dependencies: tuple[dict[str, object], ...]
     pending_dependencies: int
     root_path: Path
+    component_paths: dict[str, Path]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +106,10 @@ def _compact_group(group: AnalysisGroup) -> AnalysisGroupContext:
     analysis_group_id = "group-" + hashlib.sha256(
         (group.root.digest + "\0" + "\0".join(sorted(c.digest for c in group.components))).encode()
     ).hexdigest()[:16]
+    # 绝对路径在压缩成 basename 之前捕获，阶段 M 靠它寻址真实二进制文件。
+    component_paths = {group.root.digest: group.root.path.resolve()}
+    for component in group.components:
+        component_paths[component.digest] = component.path.resolve()
     return AnalysisGroupContext(
         analysis_group_id=analysis_group_id,
         root=root,
@@ -108,4 +117,5 @@ def _compact_group(group: AnalysisGroup) -> AnalysisGroupContext:
         dependencies=tuple(dependencies),
         pending_dependencies=pending,
         root_path=group.root.path.resolve(),
+        component_paths=component_paths,
     )
