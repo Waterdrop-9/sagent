@@ -8,13 +8,13 @@
 
 ## 起点
 
-优先级从高到低：
+本仓库不产出 `clues/`、`notes/`、`binary/`、`decompile/` 目录——下面 vh 风格章节提到的线索文件一律不存在，忽略它们，改用「Sagent 工具与证据规则」的 GhidraMCP/query_sink_paths/ELF 解析工具自行收集。优先级从高到低：
 
-1. **`clues/semgrep-findings.md`** — 规则 category 为 `command_injection` 的命中（含 sprintf→system、popen 等模式匹配结果，最精准）
-2. **`clues/dangerous-sinks.md`** — `command_injection` 章节列出的所有 `system/popen/exec*` 调用点（覆盖清单，保证不漏）
-3. **`notes/01-protocol.md`** — 网络入口和 dispatch 表（用于追可达性）
-4. **`notes/02-attack-surface.md`** — 从网络入口到各函数的污染路径
-5. **自主探索**：`binary/main/imports.txt` 和 `binary/deps/<so>/imports.txt` 里额外的 `exec*` 系列符号；反编译代码里 `fork()+execve()` 这类两步模式
+1. **GhidraMCP 导入表/函数/反编译** — 找 `system/popen/exec*` 及自定义 wrapper（如 `doSystem`）的全部调用点（最精准）
+2. **query_sink_paths** — 对高价值 sink 查参数数据依赖（覆盖清单，保证不漏）
+3. **网络入口与 dispatch 表** — 反编译 handler 与 opcode 分发表（用于追可达性）
+4. **依赖库 ELF 解析**（bash：`nm -D`/`objdump -d`/`strings`）— libauth/liblog 等未加载库的 `system/popen/exec*` 调用点（无 evidenceID，记 unresolved）
+5. **自主探索**：`fork()+execve()` 两步模式、函数指针调用
 
 ## 搜查清单
 
