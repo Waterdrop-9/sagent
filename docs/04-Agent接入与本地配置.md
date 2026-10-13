@@ -57,6 +57,22 @@ java -version
 
 GhidraMCP 扩展构建和 headless 验证步骤见根目录 [`部署与使用手册.md`](../部署与使用手册.md)。
 
+## Claude 接口兼容性
+
+Sagent 与 Claude 有两处接口，能力范围不同：
+
+1. **Agent 循环（默认路径）**：`runtime = "claude"` 时由本机 `claude` CLI 承担工具循环，
+   `config.agent_environment` 把 `agent.api_key` / `agent.base_url` 分别注入
+   `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。这条路径**要求本机安装 `@anthropic-ai/claude-code`**，
+   且只适合 Anthropic 兼容端点；OpenAI 兼容端点走 `runtime = "opencode"`。
+2. **无工具循环的直接调用**：`src/agent/llm_client.py` 用标准库直接请求
+   `{base_url}/v1/messages`（Anthropic Messages 协议），不依赖任何 CLI，端点与凭据只经
+   `SAGENT_LLM_*` 环境变量传入。它只覆盖「一轮消息 → 文本」，没有工具循环。
+
+当前 `runtime = "opencode"` + DeepSeek 是默认配置；要改用 Claude 端点需同时改 `runtime`、
+`provider`、`model`、`base_url`。直接调用客户端的设计、URL 规则、失败行为和验证方式见
+[docs/19](./19-Anthropic兼容客户端.md)；该客户端目前未接入分析流水线。
+
 ## 运行
 
 ```bash
