@@ -234,7 +234,11 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
     poc_prompt_file: Path | None = payload["poc_prompt_file"]
     confirmation: str = payload["confirmation"]
     source_root = Path(__file__).resolve().parents[1]
-    runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
+    runtime = runtime_from_name(
+        config.agent.runtime,
+        timeout=config.agent.timeout,
+        session_retries=config.agent.session_retries,
+    )
     poc_adapter = PocStageAdapter(poc_prompt_file) if poc_requested and poc_prompt_file else None
     plugin = plugin_for_cwe(cwe)
     if resume:
@@ -526,7 +530,11 @@ def _preview_pair(payload: dict[str, Any]) -> str:
     ghidra: dict[str, str] = payload["ghidra"]
     confirmation: str = payload["confirmation"]
     source_root = Path(__file__).resolve().parents[1]
-    runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
+    runtime = runtime_from_name(
+        config.agent.runtime,
+        timeout=config.agent.timeout,
+        session_retries=config.agent.session_retries,
+    )
     plugin = plugin_for_cwe(cwe)
     directory = Path(payload["output"]).resolve() / context.analysis_group_id / ("run-" + uuid4().hex[:12])
     with tempfile.TemporaryDirectory(prefix="agent-") as temporary:

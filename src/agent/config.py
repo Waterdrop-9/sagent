@@ -21,6 +21,7 @@ class AgentConfig:
     api_key: str | None
     base_url: str | None
     timeout: float
+    session_retries: int
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,8 @@ def load_config(path: str | Path = "config.toml") -> Config:
     if set(raw) - {"agent", "poc"} or not isinstance(raw.get("agent"), dict):
         raise ConfigError("配置只允许包含 [agent] 和可选的 [poc] 表")
     agent = raw["agent"]
-    allowed = {"runtime", "provider", "model", "api_key", "base_url", "timeout"}
+    allowed = {"runtime", "provider", "model", "api_key", "base_url", "timeout",
+               "session_retries"}
     unknown = set(agent) - allowed
     if unknown:
         raise ConfigError(f"未知 agent 配置项: {sorted(unknown)}")
@@ -86,6 +88,9 @@ def load_config(path: str | Path = "config.toml") -> Config:
     timeout = agent.get("timeout", 3600)
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError("agent.timeout 必须是有限正数")
+    session_retries = agent.get("session_retries", 2)
+    if type(session_retries) is not int or session_retries < 0:
+        raise ConfigError("agent.session_retries 必须是非负整数")
     poc_raw = raw.get("poc", {})
     if not isinstance(poc_raw, dict):
         raise ConfigError("poc 必须是表")
@@ -115,6 +120,7 @@ def load_config(path: str | Path = "config.toml") -> Config:
             api_key=api_key,
             base_url=base_url,
             timeout=float(timeout),
+            session_retries=session_retries,
         ),
         poc=PocConfig(enabled=poc_enabled, prompt_file=prompt_file),
     )

@@ -44,6 +44,34 @@ class CoverageTests(unittest.TestCase):
         ledger.record_path_query(PathQueryRecord('q', 'a', '0x401380', (0,), 'path_found', evidence_ids=('ev',)))
         self.assertTrue(ledger.finish_check()['canFinish'])
 
+    def test_wrapper_sink_accepts_query_on_underlying_callee(self):
+        # 真实场景（run-6950c30b7959）：confirmed sink 模型是 wrapper
+        # doSystem@0x401ba2，模型查询的是它实际调用的 popen@0x401380；
+        # 查询结果 paths[].callerFunctionID 正是 wrapper 的 functionID，
+        # 证据链同样覆盖了该参数，不应报"尚未查询参数 0"。
+        ledger = AnalysisCoverageLedger('g', ('a',))
+        ledger.register_surface(SurfaceRecord('network', 'network', None, 'checked', ('ev',)))
+        ledger.register_function_model(FunctionSecurityModel(
+            'a', '0x401ba2', 'doSystem', function_address='0x401ba2',
+            roles=('sink',), sink_params=(0,), status='confirmed', evidence_ids=('ev',)))
+        ledger.record_path_query(PathQueryRecord(
+            'q', 'a', '0x401380', (0,), 'path_found',
+            evidence_ids=('ev',), callers=('0x401ba2',)))
+        self.assertTrue(ledger.finish_check()['canFinish'])
+
+    def test_wrapper_sink_still_blocked_without_caller_match(self):
+        # 查询的路径里 caller 不是 wrapper 时不能冒充覆盖：依然要报未查询。
+        ledger = AnalysisCoverageLedger('g', ('a',))
+        ledger.register_surface(SurfaceRecord('network', 'network', None, 'checked', ('ev',)))
+        ledger.register_function_model(FunctionSecurityModel(
+            'a', '0x401ba2', 'doSystem', function_address='0x401ba2',
+            roles=('sink',), sink_params=(0,), status='confirmed', evidence_ids=('ev',)))
+        ledger.record_path_query(PathQueryRecord(
+            'q', 'a', '0x401380', (0,), 'path_found',
+            evidence_ids=('ev',), callers=('0x402000',)))
+        blockers = ledger.finish_check()['blockers']
+        self.assertTrue(any('尚未查询参数 0' in b for b in blockers), blockers)
+
     def test_empty_candidate_unknown_and_budget_cannot_finish(self):
         self.assertFalse(AnalysisCoverageLedger('g', ('a',)).finish_check()['canFinish'])
         ledger = self.ledger()

@@ -188,6 +188,19 @@ def main() -> int:
             print('{"findings": [], "unresolved": [], "coverage": {"attackSurfaces": [{"path": "snprintf(\"mkdir -p %s\") 未转义引号"}], "functionModels": []}}')
             print("```")
             return 0
+    if MODE == "session-fail-twice":
+        # 模拟 provider 瞬时超时导致的会话失败：前两次 opencode 非零退出
+        # （真实现场：deepseek 请求 "Timed out waiting for response data"），
+        # 第三次成功。用于验证 runtime 层的会话级重试。
+        marker = directory / "session-fail-attempt"
+        attempt = 0
+        if marker.exists():
+            attempt = int(marker.read_text(encoding="utf-8").strip())
+        attempt += 1
+        marker.write_text(str(attempt), encoding="utf-8")
+        if attempt <= 2:
+            print("Error: Timed out waiting for response data", file=sys.stderr)
+            return 1
     write_records(directory, group_id, binary_id, skip=MODE == "skip")
     report_data = report(binary_id, skip=MODE == "skip")
     if MODE == "recall-basis":

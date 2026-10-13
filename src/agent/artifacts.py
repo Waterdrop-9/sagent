@@ -74,6 +74,11 @@ class ArtifactStore:
             result = record["result"]
             payload = _path_payload(result)
             sink = payload.get("sink", {})
+            callers = tuple(dict.fromkeys(
+                str(path.get("callerFunctionID") or path.get("caller") or "").strip()
+                for path in payload.get("paths", [])
+                if isinstance(path, dict) and (path.get("callerFunctionID") or path.get("caller"))
+            ))
             queries.append(PathQueryRecord(
                 query_id=record["evidenceID"], binary_id=record["binaryID"],
                 sink_function_id=sink.get("functionID", record["arguments"].get("sink_function", "unknown")),
@@ -82,6 +87,7 @@ class ArtifactStore:
                 path_count=len(payload.get("paths", [])), evidence_ids=(record["evidenceID"],),
                 coverage=payload.get("coverage", {}),
                 reason=payload.get("reason") or "; ".join(payload.get("limitations", [])) or None,
+                callers=callers,
             ))
         ledger = ledger_from_report(report, group_id, binary_ids, queries)
         if context["pendingDependencies"]:

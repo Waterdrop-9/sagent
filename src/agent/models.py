@@ -140,6 +140,9 @@ class PathQueryRecord:
     evidence_ids: tuple[str, ...] = ()
     coverage: dict[str, Any] = field(default_factory=dict)
     reason: str | None = None
+    # 路径上出现过 sink 调用者的 functionID；用于 wrapper 型 sink 的覆盖判定：
+    # 查询底层被调函数（popen）时路径里的 caller 正是 wrapper（doSystem）。
+    callers: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         allowed = {"path_found", "no_path", "unknown", "unsupported", "failed"}
@@ -159,4 +162,5 @@ class PathQueryRecord:
             "evidenceIDs": list(self.evidence_ids),
             "coverage": self.coverage,
             "reason": self.reason,
+            "callers": list(self.callers),
         }

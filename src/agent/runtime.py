@@ -56,16 +56,21 @@ class AgentRuntime(Protocol):
 class _CliRuntime:
     name = "cli"
 
+    # 这些错误不在此层重试（由子类更细粒度的重试接管，避免重试爆炸）。
+    _non_retryable_markers: tuple[str, ...] = ()
+
     def __init__(
         self,
         executable: str,
         *,
         timeout: float = 3600,
         environment: Mapping[str, str] | None = None,
+        session_retries: int = 0,
     ) -> None:
         self.executable = executable
         self.timeout = timeout
         self.environment = dict(environment or {})
+        self.session_retries = session_retries
 
     def _check_executable(self) -> str:
         executable = shutil.which(self.executable) or (
@@ -100,6 +105,34 @@ class _CliRuntime:
             " ".join(command),
             f" (cwd={request.cwd})" if request.cwd is not None else "",
         )
+        # 会话级重试：底座非零退出或超时（如 provider 瞬时超时）时，复用同一
+        # prompt 与工作目录重跑整个会话。报告内容无效不在这一层管（cli 层有
+        # 报告级重试）。子类声明不重试的错误标记（如启动竞态，由更细粒度的
+        # 退避重试接管）直接抛出。
+        delay = 2.0
+        for attempt in range(self.session_retries + 1):
+            try:
+                return self._run_once(command, env, request)
+            except AgentRuntimeError as exc:
+                if (
+                    attempt >= self.session_retries
+                    or any(marker in str(exc) for marker in self._non_retryable_markers)
+                ):
+                    raise
+                LOG.warning(
+                    "会话失败，%.0fs 后重试（第 %d/%d 次）: %s",
+                    delay,
+                    attempt + 1,
+                    self.session_retries,
+                    str(exc).splitlines()[0],
+                )
+                time.sleep(delay)
+                delay *= 2
+        raise AssertionError("unreachable")
+
+    def _run_once(
+        self, command: tuple[str, ...], env: dict[str, str], request: AgentRequest
+    ) -> AgentResponse:
         started = time.monotonic()
         try:
             completed = subprocess.run(
@@ -209,6 +242,9 @@ class OpenCodeRuntime(_CliRuntime):
     # 分析失败：退避重试有限次；重试只发生在会话尚未开始产出之前，不重复消耗分析。
     _SERVER_START_RACE = "Standalone server exited before reporting readiness"
     _STARTUP_RETRIES = 2
+    # 启动竞态由 _run_with_startup_retry 的短退避接管；会话级重试跳过它，
+    # 避免两层重试叠加成 9 次会话。
+    _non_retryable_markers = (_SERVER_START_RACE,)
 
     def __init__(
         self,
@@ -216,8 +252,14 @@ class OpenCodeRuntime(_CliRuntime):
         *,
         timeout: float = 3600,
         environment: Mapping[str, str] | None = None,
+        session_retries: int = 2,
     ) -> None:
-        super().__init__(executable, timeout=timeout, environment=environment)
+        super().__init__(
+            executable,
+            timeout=timeout,
+            environment=environment,
+            session_retries=session_retries,
+        )
 
     def build_command(self, request: AgentRequest) -> tuple[str, ...]:
         prompt = request.user_prompt

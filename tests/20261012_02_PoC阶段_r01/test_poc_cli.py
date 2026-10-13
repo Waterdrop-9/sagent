@@ -307,6 +307,51 @@ prompt_file = "{ROOT / 'prompts/poc-stage.md'}"
         self.assertEqual(report["findings"][0]["status"], "confirmed")
 
 
+class SessionRetryTests(unittest.TestCase):
+    """会话级重试：opencode 非零退出（provider 超时等）时复用同一会话重跑。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name)
+        self.output = base / "out"
+        self.config = base / "config.toml"
+        self.config.write_text(
+            f"""[agent]
+runtime = "opencode"
+provider = "deepseek"
+model = "deepseek-flash"
+api_key = "test-key"
+base_url = "https://example.invalid/v1"
+timeout = 300
+
+[poc]
+enabled = false
+prompt_file = "{ROOT / 'prompts/poc-stage.md'}"
+""",
+            encoding="utf-8",
+        )
+
+    def test_session_failure_is_retried_twice(self):
+        # 真实故障：run-d50f0edc4b76/run-4b7a4c41fb5a 在探索中途因 deepseek
+        # provider 超时被 opencode 以退出码 1 终止。fake 底座前两次打印
+        # "Timed out waiting for response data" 返回 1，第三次正常输出报告
+        # ——会话级重试应把本轮救回来。
+        result = run_cli(self.output, self.config, mode="session-fail-twice")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("会话失败", result.stderr)
+        self.assertIn("第 1/2 次", result.stderr)
+        self.assertIn("第 2/2 次", result.stderr)
+        runs = list((self.output / EXPECTED_GROUP).glob("run-*"))
+        self.assertEqual(len(runs), 1)
+        report = json.loads(
+            (runs[0] / "report.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(report["findings"][0]["status"], "confirmed")
+        marker = runs[0] / "session-fail-attempt"
+        self.assertEqual(marker.read_text(encoding="utf-8").strip(), "3")
+
+
 class RuntimeEnvTests(unittest.TestCase):
     """运行时环境修复的回归测试：过期的 PWD 必须被修正为实际 cwd。"""
 

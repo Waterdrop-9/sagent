@@ -81,12 +81,19 @@ class AnalysisCoverageLedger:
             if not model.sink_params:
                 blockers.append(f"confirmed sink 缺少敏感参数: {identity}")
             for param in model.sink_params:
-                if not any(
+                # 接受两种查询形态：直接查 sink 本身；或查 sink 实际调用的底层
+                # 函数（如 doSystem 内的 popen），此时路径里的 callerFunctionID
+                # 正是 wrapper 的 functionID——证据链同样覆盖了该参数。
+                queried = any(
                     query.binary_id == model.binary_id
-                    and _same_function(query.sink_function_id, model)
+                    and (_same_function(query.sink_function_id, model)
+                         or model.function_id in query.callers
+                         or (model.function_address is not None
+                             and model.function_address in query.callers))
                     and param in query.sink_params
                     for query in self.path_queries.values()
-                ):
+                )
+                if not queried:
                     blockers.append(f"confirmed sink 尚未查询参数 {param}: {identity}")
         for query in self.path_queries.values():
             if query.result_status in {"unknown", "unsupported", "failed"}:
