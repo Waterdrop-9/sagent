@@ -68,6 +68,9 @@ def validate_report(report: dict[str, Any]) -> None:
             raise AgentReportError(f"{label} status 无效")
         if finding.get("confidence") not in {"low", "medium", "high"}:
             raise AgentReportError(f"{label} confidence 无效")
+        basis = finding.get("confirmationBasis")
+        if basis is not None and basis not in {"taint-path", "reference-chain"}:
+            raise AgentReportError(f"{label} confirmationBasis 无效")
         _strings(finding.get("evidenceIDs"), label + ".evidenceIDs", nonempty=True)
         _strings(finding.get("limitations", []), label + ".limitations")
     for item in report["unresolved"]:
@@ -110,3 +113,28 @@ def validate_report(report: dict[str, Any]) -> None:
             FunctionSecurityModel.from_dict(item)
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise AgentReportError(f"函数模型无效: {exc}") from exc
+
+
+def apply_confirmation_policy(report: dict[str, Any], mode: str) -> int:
+    """按确认标准模式执行运行时硬门禁。
+
+    precision 模式把 confirmationBasis=reference-chain 的 confirmed finding
+    降级为 unresolved（模型自觉不可依赖，硬门禁保证 precision 语义）。
+    recall 模式不做任何修改。返回降级条数。
+    """
+    if mode != "precision":
+        return 0
+    kept: list[dict[str, Any]] = []
+    downgraded: list[dict[str, Any]] = []
+    for finding in report["findings"]:
+        if finding.get("confirmationBasis") == "reference-chain":
+            downgraded.append(finding)
+        else:
+            kept.append(finding)
+    for finding in downgraded:
+        report["unresolved"].append(
+            f"precision 确认标准拒绝引用链级确认: {finding['binaryID']}/{finding['functionID']}"
+            "（confirmationBasis=reference-chain，需污点级证据）"
+        )
+    report["findings"] = kept
+    return len(downgraded)

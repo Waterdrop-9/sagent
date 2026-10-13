@@ -13,7 +13,7 @@
 }
 ```
 
-finding 至少包含 cwe、binaryID、functionID、source、sink、sinkParams、path（紧凑地址/边摘要）、evidenceIDs、status、confidence、limitations。limitations 必须是**非空字符串数组**：至少写一条本 finding 的真实限制（如路径后端只给函数内定义链、依赖组件未加载），每条是非空、具体的句子；没有限制可写也要写"已检查 X，未见限制证据"。最终 finding 的 status 只能是 confirmed 或 rejected；证据不足的候选不能放入 findings，必须写入 unresolved。confidence 是 low/medium/high。当前路径后端仅返回函数内定义依赖时，不能输出 confirmed finding。
+finding 至少包含 cwe、binaryID、functionID、source、sink、sinkParams、path（紧凑地址/边摘要）、evidenceIDs、status、confidence、limitations，可选 confirmationBasis（taint-path | reference-chain，含义见 confirmation-policy）。limitations 必须是**非空字符串数组**：至少写一条本 finding 的真实限制（如路径后端只给函数内定义链、依赖组件未加载），每条是非空、具体的句子；没有限制可写也要写"已检查 X，未见限制证据"。最终 finding 的 status 只能是 confirmed 或 rejected；证据不足的候选不能放入 findings，必须写入 unresolved。confidence 是 low/medium/high。确认标准由 confirmation-policy 决定：recall 模式下引用链级证据（confirmationBasis=reference-chain）即可 confirmed；precision 模式下路径后端仅返回函数内定义依赖时不能输出 confirmed finding。
 
 attackSurfaces 每项包含 surfaceID、category、functionID、status（open/checked/rejected/unknown）、evidenceIDs、reason。无法检查的攻击面必须写 unknown 和原因；不能用空数组表示全部覆盖。
 

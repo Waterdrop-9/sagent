@@ -108,6 +108,34 @@ class ReportTests(unittest.TestCase):
                     'confidence': 'low', 'evidenceIDs': ['ev'], 'limitations': [],
                 }], 'coverage': {}, 'unresolved': []}))
 
+    def test_confirmation_basis_is_validated(self):
+        finding = {'status': 'confirmed', 'binaryID': 'a', 'functionID': 'f',
+                   'confidence': 'high', 'evidenceIDs': ['ev'], 'limitations': []}
+        for basis in ('taint-path', 'reference-chain', None):
+            report = copy.deepcopy({'findings': [finding], 'coverage': {}, 'unresolved': []})
+            if basis is not None:
+                report['findings'][0]['confirmationBasis'] = basis
+            self.assertEqual(parse_report(json.dumps(report))['findings'][0].get('confirmationBasis'), basis)
+        report = copy.deepcopy({'findings': [finding], 'coverage': {}, 'unresolved': []})
+        report['findings'][0]['confirmationBasis'] = 'guess'
+        with self.assertRaises(AgentReportError):
+            parse_report(json.dumps(report))
+
+    def test_confirmation_policy_gate_by_mode(self):
+        from agent.agent_report import apply_confirmation_policy
+        report = {'findings': [{
+            'status': 'confirmed', 'binaryID': 'a', 'functionID': 'doSystem',
+            'confidence': 'high', 'evidenceIDs': ['ev'],
+            'confirmationBasis': 'reference-chain', 'limitations': [],
+        }], 'coverage': {}, 'unresolved': []}
+        recall = copy.deepcopy(report)
+        self.assertEqual(apply_confirmation_policy(recall, 'recall'), 0)
+        self.assertEqual(len(recall['findings']), 1)
+        precision = copy.deepcopy(report)
+        self.assertEqual(apply_confirmation_policy(precision, 'precision'), 1)
+        self.assertEqual(precision['findings'], [])
+        self.assertTrue(any('precision 确认标准拒绝引用链级确认' in item for item in precision['unresolved']))
+
     def test_all_supported_cwe_prompts_load(self):
         self.assertEqual(set(supported_cwes()), {'CWE-78', 'CWE-134', 'CWE-190', 'CWE-606', 'CWE-415', 'CWE-416'})
         for cwe in supported_cwes():
@@ -204,6 +232,47 @@ class ArtifactTests(unittest.TestCase):
         report = self.store.finalize(self.report)
         self.assertEqual(report['findings'], [])
         self.assertTrue(any('finding 未达到最终状态门槛' in item for item in report['unresolved']))
+
+    def test_cross_binary_evidence_attributed_to_root_binary_is_kept(self):
+        # 真实故障：run-656dc86af251（recall 验证）里模型把 auth_log 链归属 libauth，
+        # 但 Ghidra 会话只加载 root binary，所有工具记录的 binaryID=server；
+        # 旧的 binaryID 强相等核验把 6 条真实证据判为"无法核验"，且 invalid_references
+        # 全局连坐，把 server 侧的 doSystem 链（共享 get_program_info/list_imports
+        # 证据）一并踢出。修复后核验只看 evidenceID 是否真实可查。
+        manifest_path = self.store.directory / 'manifest.json'
+        manifest = json.loads(manifest_path.read_text())
+        component_id = 'c' * 64
+        manifest['analysisGroup']['components'].append({
+            'binaryID': component_id, 'path': 'libauth.so',
+        })
+        manifest_path.write_text(json.dumps(manifest))
+        raw = self.store.directory / 'raw'
+        raw.mkdir(exist_ok=True)
+        (raw / 'ghidra.jsonl').write_text(json.dumps({
+            'evidenceID': 'ev-root-1', 'server': 'ghidra',
+            'tool': 'get_program_info', 'arguments': {},
+            'analysisGroupID': self.context.analysis_group_id,
+            'binaryID': self.context.root['binaryID'],
+            'elapsedSeconds': 1, 'result': {'status': 'ok'},
+        }) + '\n')
+        self.report['findings'] = [
+            {
+                'status': 'confirmed', 'binaryID': component_id,
+                'functionID': '0x1459', 'confidence': 'high',
+                'evidenceIDs': ['ev-root-1'], 'limitations': [],
+            },
+            {
+                'status': 'confirmed', 'binaryID': self.context.root['binaryID'],
+                'functionID': '0x401ba2', 'confidence': 'high',
+                'evidenceIDs': ['ev-root-1'], 'limitations': [],
+            },
+        ]
+        report = self.store.finalize(self.report)
+        self.assertEqual(
+            [(f['binaryID'], f['functionID']) for f in report['findings']],
+            [(component_id, '0x1459'), (self.context.root['binaryID'], '0x401ba2')],
+        )
+        self.assertFalse(any('证据引用无法核验' in item for item in report['unresolved']))
 
     def test_model_and_surface_hallucinated_evidence_is_stripped(self):
         # 真实故障：run-80e26d98d2d7 的函数模型/攻击面引用了一个代理从未签发的

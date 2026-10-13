@@ -22,7 +22,7 @@ from .analysis_context import (
     build_contexts,
     render_contexts,
 )
-from .agent_report import AgentReportError, MAX_REPORT_BYTES, parse_report
+from .agent_report import AgentReportError, MAX_REPORT_BYTES, apply_confirmation_policy, parse_report
 from .artifacts import ArtifactStore, write_json
 from .config import AgentConfig, ConfigError, agent_environment, load_config, load_ghidra_config
 from .poc_stage import PocStageAdapter, PocStageError
@@ -83,6 +83,25 @@ def _agent_request(
     )
 
 
+def _confirmation_appendix(mode: str) -> str:
+    """从 prompts/common/confirmation-policy.md 截取当前确认标准小节。
+
+    该小节作为系统提示词最后一节注入，覆盖 report-schema/CWE 模板中更严格的
+    默认确认表述；模式（recall/precision）由 --confirmation 决定。
+    """
+    prompt_file = Path(__file__).resolve().parents[2] / "prompts" / "common" / "confirmation-policy.md"
+    text = prompt_file.read_text(encoding="utf-8")
+    heading = "## 漏报优先模式（recall）" if mode == "recall" else "## 降误报模式（precision）"
+    index = text.find(heading)
+    if index < 0:
+        raise ValueError(f"confirmation-policy.md 缺少小节: {heading}")
+    section = text[index:]
+    next_index = section.find("\n## ", 1)
+    if next_index > 0:
+        section = section[:next_index]
+    return "\n\n" + section.strip()
+
+
 def _poc_manifest_base(
     confirmed_findings: list[dict[str, Any]], files: list[str] | None = None
 ) -> dict[str, Any]:
@@ -132,6 +151,7 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
     ghidra: dict[str, str] = payload["ghidra"]
     poc_requested: bool = payload["poc_requested"]
     poc_prompt_file: Path | None = payload["poc_prompt_file"]
+    confirmation: str = payload["confirmation"]
     source_root = Path(__file__).resolve().parents[1]
     runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
     poc_adapter = PocStageAdapter(poc_prompt_file) if poc_requested and poc_prompt_file else None
@@ -184,7 +204,7 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
         )
         request = _agent_request(
             config.agent,
-            system_prompt=plugin.system_prompt,
+            system_prompt=plugin.system_prompt + _confirmation_appendix(confirmation),
             user_prompt=prompt,
             mcp_config=config_path,
             # cwd 指向本轮的产物目录：opencode 的项目配置与模型写的文件
@@ -235,6 +255,15 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
                 report.setdefault("elapsedSeconds", None)
                 report.setdefault("usage", None)
                 report.setdefault("cwe", cwe)
+            # 确认标准硬门禁：precision 模式把引用链级确认降级为 unresolved；
+            # 模式记录进报告，供审计与断点续跑判断。
+            downgraded = apply_confirmation_policy(report, confirmation)
+            if downgraded:
+                LOG.info(
+                    "precision 确认标准：%d 条引用链级 finding 降级为 unresolved",
+                    downgraded,
+                )
+            report.setdefault("confirmationMode", confirmation)
             confirmed_findings = [
                 finding for finding in report["findings"]
                 if finding.get("status") == "confirmed"
@@ -373,6 +402,7 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
                         "run": directory.name,
                         "goal": goal,
                         "poc": poc_adapter is not None,
+                        "confirmation": confirmation,
                         "report": report,
                     },
                 )
@@ -400,6 +430,7 @@ def _preview_pair(payload: dict[str, Any]) -> str:
     cwe: str = payload["cwe"]
     goal: str = payload["goal"]
     ghidra: dict[str, str] = payload["ghidra"]
+    confirmation: str = payload["confirmation"]
     source_root = Path(__file__).resolve().parents[1]
     runtime = runtime_from_name(config.agent.runtime, timeout=config.agent.timeout)
     plugin = plugin_for_cwe(cwe)
@@ -415,7 +446,7 @@ def _preview_pair(payload: dict[str, Any]) -> str:
         )
         request = _agent_request(
             config.agent,
-            system_prompt=plugin.system_prompt,
+            system_prompt=plugin.system_prompt + _confirmation_appendix(confirmation),
             user_prompt=plugin.build_user_prompt(goal, context.root_path, render_contexts((context,))),
             mcp_config=config_path,
             cwd=directory,
@@ -451,6 +482,11 @@ def main(argv: list[str] | None = None) -> int:
         help="忽略断点：--resume 时重跑全部阶段；批量运行时忽略已完成任务重新执行",
     )
     parser.add_argument("--poc", action="store_true", help="对 confirmed findings 接入独立的 PoC 阶段")
+    parser.add_argument(
+        "--confirmation", choices=["recall", "precision"], default="recall",
+        help="确认标准：recall=漏报优先（当前阶段默认，允许引用链级证据 confirmed）；"
+             "precision=降误报（只接受污点级证据，引用链级 finding 运行时降级为 unresolved）",
+    )
     # 并发执行 (分析组, CWE) 任务：产物目录按任务隔离，串行/并发结果语义一致；
     # 内存开销随并发数线性上升（每个任务一个 ghidra 与 angr 进程），默认 1 保持串行。
     parser.add_argument("--workers", type=int, default=1, help="并发 worker 数（默认 1 串行）")
@@ -484,7 +520,12 @@ def main(argv: list[str] | None = None) -> int:
                         data = json.loads(checkpoint.read_text())
                     except (OSError, json.JSONDecodeError):
                         data = {}
-                    if data.get("goal") == args.goal and data.get("poc") == poc_requested and "report" in data:
+                    if (
+                        data.get("goal") == args.goal
+                        and data.get("poc") == poc_requested
+                        and data.get("confirmation") == args.confirmation
+                        and "report" in data
+                    ):
                         LOG.info(
                             "断点续跑：跳过已完成任务 group=%s cwe=%s run=%s",
                             context.analysis_group_id, cwe, data.get("run"),
@@ -502,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
                     "ghidra": ghidra,
                     "poc_requested": poc_requested,
                     "poc_prompt_file": poc_prompt_file,
+                    "confirmation": args.confirmation,
                 })
         for index, payload in enumerate(payloads, 1):
             payload["index"] = index
@@ -525,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
         failures = sum(1 for report in reports if "error" in report)
         LOG.info(
             "运行全部结束 groups=%d 成功=%d 失败=%d 复用=%d 总耗时=%.1fs",
-            len(reports) + len(skipped_reports), len(reports), failures,
+            len(reports) + len(skipped_reports), len(reports) - failures, failures,
             len(skipped_reports), time.monotonic() - run_started,
         )
         print(json.dumps(reports[0] if len(reports) == 1 else {"analysisGroups": reports}, ensure_ascii=False, indent=2))

@@ -92,16 +92,20 @@ class ArtifactStore:
         invalid_references = set()
         objects = [*report["findings"], *report["coverage"].get("attackSurfaces", []),
                    *report["coverage"].get("functionModels", [])]
+        # 证据核验只回答"引用是否真实可查"：evidenceID 存在、属于本分析组且工具
+        # 未报错即可。不要求证据记录的 binaryID 与引用对象一致——分析组内跨
+        # 二进制调用链（server→libauth）天然需要跨 binary 引用，且当前 Ghidra
+        # 会话只加载 root binary，所有工具记录都打上 root 的 binaryID；按
+        # binaryID 强相等会把真实引用误判为"无法核验"。
         for item in objects:
             valid_ids = []
             for evidence_id in item.get("evidenceIDs", []):
                 record = evidence.get(evidence_id)
-                if not record or (item.get("binaryID") and item["binaryID"] != record["binaryID"]):
-                    ledger.add_unresolved(f"证据引用无法核验: {evidence_id}")
-                    invalid_references.add(evidence_id)
-                    continue
-                if record["result"].get("isError"):
-                    ledger.add_unresolved(f"引用的工具执行失败: {evidence_id}")
+                if not record or record["result"].get("isError"):
+                    if record and record["result"].get("isError"):
+                        ledger.add_unresolved(f"引用的工具执行失败: {evidence_id}")
+                    else:
+                        ledger.add_unresolved(f"证据引用无法核验: {evidence_id}")
                     invalid_references.add(evidence_id)
                     continue
                 valid_ids.append(evidence_id)
