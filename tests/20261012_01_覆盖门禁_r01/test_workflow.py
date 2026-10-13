@@ -129,6 +129,26 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(model.propagation_map[1].from_param, 'argv[1]')
         self.assertEqual(model.propagation_map[1].to_param, 0)
 
+    def test_params_accept_dict_form_with_param_index(self):
+        # 真实故障：CWE-606 夹具运行（run-cf00f1168783）连续两次报告无效
+        # "函数模型无效: 参数编号必须是非负整数"——模型把 sourceParams/sinkParams
+        # 写成带 api/paramIndex/note 的对象数组。能取出非负 paramIndex 就按编号收起，
+        # 取不出的对象与负编号仍然拒绝。
+        report = {'findings': [], 'unresolved': [], 'coverage': {'functionModels': [
+            {'binaryID': 'a', 'functionID': 'f', 'propagationMap': [],
+             'sourceParams': [{'api': 'recv', 'paramIndex': 1, 'note': 'x'}],
+             'sinkParams': [2]}]}}
+        parse_report(json.dumps(report))
+        model = FunctionSecurityModel.from_dict(report['coverage']['functionModels'][0])
+        self.assertEqual(model.source_params, (1,))
+        self.assertEqual(model.sink_params, (2,))
+        for bad in ([{'api': 'recv'}], [{'paramIndex': -1}], 'not-a-list'):
+            with self.assertRaises(AgentReportError):
+                parse_report(json.dumps({'findings': [], 'unresolved': [], 'coverage': {
+                    'functionModels': [
+                        {'binaryID': 'a', 'functionID': 'f', 'propagationMap': [],
+                         'sourceParams': bad}]}}))
+
     def test_final_finding_status_has_no_intermediate_state(self):
         for status in ('candidate', 'inconclusive'):
             with self.assertRaises(AgentReportError):

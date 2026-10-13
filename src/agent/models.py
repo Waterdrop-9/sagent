@@ -60,6 +60,30 @@ class FunctionSecurityModel:
             if type(param) is not int or param < 0:
                 raise ValueError("参数编号必须是非负整数")
 
+    @staticmethod
+    def _coerce_params(raw: Any) -> tuple[int, ...]:
+        """sourceParams/sinkParams 必须是参数编号的整数数组。
+
+        模型偶尔把参数写成带 paramIndex 的对象（api/note 是说明），
+        只要每个对象都能取出非负整数 paramIndex 就按编号收起，
+        其余形式保持严格拒绝（负编号在 __post_init__ 统一拦截）。
+        """
+        if raw is None:
+            return ()
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple)):
+            raise ValueError("参数编号必须是非负整数")
+        params: list[int] = []
+        for item in raw:
+            if type(item) is int:
+                params.append(item)
+            elif isinstance(item, dict) and "paramIndex" in item and type(item["paramIndex"]) is int:
+                params.append(item["paramIndex"])
+            else:
+                raise ValueError("参数编号必须是非负整数")
+        return tuple(params)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> FunctionSecurityModel:
         """恢复紧凑模型；不从 finding 状态推断函数角色。"""
@@ -96,7 +120,8 @@ class FunctionSecurityModel:
             function_name=data.get("functionName", data["functionID"]),
             function_address=data.get("functionAddress"), roles=tuple(roles),
             cwe_types=tuple(data.get("cweTypes", ())),
-            source_params=tuple(data.get("sourceParams", ())), sink_params=tuple(data.get("sinkParams", ())),
+            source_params=cls._coerce_params(data.get("sourceParams")),
+            sink_params=cls._coerce_params(data.get("sinkParams")),
             propagation_map=tuple(PropagationMapping(
                 # 模型偶尔会把 fromParam/toFunction 写成 from/to，容忍这两个别名；
                 # 键名契约以 prompts/common/report-schema.md 为准。
