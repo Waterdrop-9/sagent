@@ -214,6 +214,35 @@ def _detach_run_log(handler: logging.Handler | None) -> None:
         handler.close()
 
 
+def _ghidra_sessions(context: AnalysisGroupContext) -> tuple[tuple[str, Path], ...]:
+    """根二进制之外、分析组内真实存在于磁盘的组件 → 独立 Ghidra 会话。
+
+    组件路径来自 build_analysis_groups 的解析结果（含依赖根展开），
+    不在场的组件（resolve 失败）交给先验条款兜底，不启动会话。
+    """
+    root_id = context.root["binaryID"]
+    sessions: list[tuple[str, Path]] = []
+    for binary_id, path in sorted(context.component_paths.items()):
+        if binary_id == root_id:
+            continue
+        if path.is_file():
+            sessions.append((binary_id, path))
+    return tuple(sessions)
+
+
+def _ghidra_sessions_appendix(
+    context: AnalysisGroupContext, sessions: tuple[tuple[str, Path], ...]
+) -> str:
+    """把每个 Ghidra MCP 会话覆盖的二进制写进 user prompt，防止模型张冠李戴。"""
+    lines = [
+        "\n\n## Ghidra MCP 会话映射",
+        f"- ghidra = {context.root_path.name}（binaryID={context.root['binaryID']}）",
+    ]
+    for binary_id, path in sessions:
+        lines.append(f"- ghidra-{binary_id[:8]} = {path.name}（binaryID={binary_id}）")
+    return "\n".join(lines)
+
+
 def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
     """单个 (分析组, CWE) 的完整分析任务。
 
@@ -275,6 +304,9 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             risk_chains_doc = None
     prompt = plugin.build_user_prompt(goal, context.root_path, render_contexts((context,)))
+    ghidra_sessions = _ghidra_sessions(context)
+    if ghidra_sessions:
+        prompt += _ghidra_sessions_appendix(context, ghidra_sessions)
     if risk_chains_doc:
         prompt += _chains_summary_appendix(risk_chains_doc)
     if resume_text:
@@ -292,6 +324,7 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
             api_key=config.agent.api_key, base_url=config.agent.base_url,
             artifact_dir=directory, analysis_group_id=context.analysis_group_id,
             binary_id=context.root["binaryID"],
+            ghidra_sessions=ghidra_sessions,
         )
         mcp_json = json.loads(config_path.read_text())
         LOG.info(
@@ -323,7 +356,10 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
                     # （如 ghidra MCP 未连上时 ghidra=0，agent 降级为 objdump+paths）。
                     LOG.info(
                         "工具证据 ghidra=%d paths=%d",
-                        _count_lines(directory / "raw" / "ghidra.jsonl"),
+                        sum(
+                            _count_lines(path)
+                            for path in (directory / "raw").glob("ghidra*.jsonl")
+                        ),
                         _count_lines(directory / "raw" / "paths.jsonl"),
                     )
                     try:
@@ -545,6 +581,7 @@ def _preview_pair(payload: dict[str, Any]) -> str:
             api_key=config.agent.api_key, base_url=config.agent.base_url,
             artifact_dir=directory, analysis_group_id=context.analysis_group_id,
             binary_id=context.root["binaryID"],
+            ghidra_sessions=_ghidra_sessions(context),
         )
         request = _agent_request(
             config.agent,

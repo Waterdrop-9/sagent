@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -302,7 +303,37 @@ class ArtifactTests(unittest.TestCase):
         )
         self.assertFalse(any('证据引用无法核验' in item for item in report['unresolved']))
 
-    def test_model_and_surface_hallucinated_evidence_is_stripped(self):
+    def test_component_ghidra_journal_is_loaded_and_cited(self):
+        # 任务 D（多二进制 Ghidra）：组件的独立会话写 raw/ghidra-<prefix>.jsonl，
+        # records() 必须把后缀日志一并读入，finalize 才能核验组件证据。
+        manifest_path = self.store.directory / 'manifest.json'
+        manifest = json.loads(manifest_path.read_text())
+        component_id = 'c' * 64
+        manifest['analysisGroup']['components'].append({
+            'binaryID': component_id, 'path': 'libauth.so',
+        })
+        manifest_path.write_text(json.dumps(manifest))
+        raw = self.store.directory / 'raw'
+        raw.mkdir(exist_ok=True)
+        (raw / f'ghidra-{component_id[:8]}.jsonl').write_text(json.dumps({
+            'evidenceID': 'ev-comp-1', 'server': f'ghidra-{component_id[:8]}',
+            'tool': 'decompile_function', 'arguments': {},
+            'analysisGroupID': self.context.analysis_group_id,
+            'binaryID': component_id,
+            'elapsedSeconds': 1, 'result': {'status': 'ok'},
+        }) + '\n')
+        self.report['findings'] = [{
+            'status': 'confirmed', 'binaryID': component_id,
+            'functionID': '0x1459', 'confidence': 'high',
+            'evidenceIDs': ['ev-comp-1'], 'limitations': [],
+        }]
+        report = self.store.finalize(self.report)
+        self.assertEqual(
+            [(f['binaryID'], f['functionID']) for f in report['findings']],
+            [(component_id, '0x1459')],
+        )
+        self.assertFalse(any('证据引用无法核验' in item for item in report['unresolved']))
+
         # 真实故障：run-80e26d98d2d7 的函数模型/攻击面引用了一个代理从未签发的
         # evidenceID（findings 被门槛移出，但模型/攻击面上的坏引用留在报告里）。
         # 修复后坏引用从模型/攻击面剔除，只保留可核验的引用，并记 unresolved。
@@ -373,6 +404,77 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertIn(records[0]['evidenceID'], response['result']['content'][-1]['text'])
         self.assertEqual(records[0]['result']['content'][0]['text'], 'observed')
+
+
+class PluginMcpTests(unittest.TestCase):
+    """多二进制 Ghidra 会话（任务 D）：mcp 配置形状与证据代理的 binary-id 映射。"""
+
+    @staticmethod
+    def _ghidra_config():
+        from agent.config import GhidraMcpConfig
+        return GhidraMcpConfig(
+            mode='headless', server='http://127.0.0.1:8080', uvx='uvx',
+            python='/usr/bin/python3', package='ghidra_mcp', ready_timeout=120,
+            install_dir=Path('/opt/ghidra'), extension_jar=Path('/tmp/GhidraMCP.jar'),
+        )
+
+    def test_mcp_config_emits_per_component_ghidra_sessions(self):
+        plugin = Cwe78Plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'server'
+            root.write_bytes(b'')
+            libauth = Path(tmp) / 'libauth.so'
+            libauth.write_bytes(b'')
+            config = plugin.mcp_config(
+                root, ROOT / 'src', ghidra=self._ghidra_config(),
+                artifact_dir=Path(tmp) / 'artifacts',
+                analysis_group_id='group-x', binary_id='a' * 64,
+                ghidra_sessions=(('b' * 64, libauth),),
+            )
+        servers = config['opencode']['mcp']['servers']
+        self.assertEqual(set(servers), {'ghidra', 'ghidra-' + 'b' * 8})
+        root_command = servers['ghidra']['command']
+        comp_command = servers['ghidra-' + 'b' * 8]['command']
+        # 根会话：--binary 指向 root、证据代理 --binary-id 用根 ID
+        self.assertIn(str(root.resolve()), root_command)
+        self.assertIn('a' * 64, root_command)
+        self.assertNotIn('b' * 64, root_command)
+        # 组件会话：--binary 指向组件路径、证据代理 --binary-id 用组件 ID
+        self.assertIn(str(libauth.resolve()), comp_command)
+        self.assertIn('b' * 64, comp_command)
+        self.assertNotIn('a' * 64, comp_command)
+        # 两会话共用同一 run 目录与 analysis group
+        for command in (root_command, comp_command):
+            self.assertIn('--group-id', command)
+            self.assertIn('group-x', command)
+
+    def test_mcp_config_paths_server_with_component_sessions(self):
+        # 真实故障：paths 后端在场时证据代理的 binary-id 映射曾 KeyError
+        # （paths 不是 Ghidra 会话，必须沿用根 binaryID）。
+        plugin = Cwe78Plugin()
+        old = os.environ.get('AGENT_PATH_BACKEND_PYTHON')
+        os.environ['AGENT_PATH_BACKEND_PYTHON'] = sys.executable
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / 'server'
+                root.write_bytes(b'')
+                libauth = Path(tmp) / 'libauth.so'
+                libauth.write_bytes(b'')
+                config = plugin.mcp_config(
+                    root, ROOT / 'src', ghidra=self._ghidra_config(),
+                    artifact_dir=Path(tmp) / 'artifacts',
+                    analysis_group_id='group-x', binary_id='a' * 64,
+                    ghidra_sessions=(('b' * 64, libauth),),
+                )
+        finally:
+            if old is None:
+                del os.environ['AGENT_PATH_BACKEND_PYTHON']
+            else:
+                os.environ['AGENT_PATH_BACKEND_PYTHON'] = old
+        servers = config['opencode']['mcp']['servers']
+        self.assertIn('paths', servers)
+        self.assertIn('a' * 64, servers['paths']['command'])
+        self.assertNotIn('b' * 64, servers['paths']['command'])
 
 
 class _ProbeRuntime(_CliRuntime):

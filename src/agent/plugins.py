@@ -110,8 +110,14 @@ class MarkdownCwePlugin:
         artifact_dir: Path | None = None,
         analysis_group_id: str = "",
         binary_id: str = "",
+        ghidra_sessions: tuple[tuple[str, Path], ...] = (),
     ) -> dict[str, object]:
-        """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。"""
+        """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。
+
+        ghidra_sessions: 除根二进制外，为分析组内每个组件额外启动一个
+        独立 Ghidra 会话（(binaryID, 绝对路径) 序列），会话名
+        ``ghidra-<binaryID 前 8 位>``，证据代理按会话各自的 binaryID 落盘。
+        """
 
         ghidra_mode = ghidra.mode
         ghidra_server = ghidra.server
@@ -120,39 +126,57 @@ class MarkdownCwePlugin:
         ghidra_package = ghidra.package
         ready_timeout = ghidra.ready_timeout
         uvx = shutil.which(ghidra_uvx) or ghidra_uvx
-        ghidra_args = [
-            "--python",
-            ghidra_python,
-            "--from",
-            ghidra_package,
-            "ghidra-mcp",
-            "--ready-timeout",
-            str(ready_timeout),
-        ]
-        ghidra_env: dict[str, str] = {}
         ghidra_install_dir = ghidra.install_dir
         ghidra_extension_jar = ghidra.extension_jar
-        if ghidra_mode == "headless":
-            ghidra_args.extend(("--headless", "--binary", str(target.resolve())))
-            if ghidra_install_dir:
-                ghidra_args.extend(("--ghidra-install-dir", str(ghidra_install_dir.resolve())))
-                ghidra_env["GHIDRA_INSTALL_DIR"] = str(ghidra_install_dir.resolve())
-            if ghidra_extension_jar:
-                ghidra_args.extend(("--extension-jar", str(ghidra_extension_jar.resolve())))
-        else:
-            ghidra_args.extend(("--ghidra-server", ghidra_server))
 
+        def _ghidra_args(binary: Path) -> tuple[list[str], dict[str, str]]:
+            args = [
+                "--python",
+                ghidra_python,
+                "--from",
+                ghidra_package,
+                "ghidra-mcp",
+                "--ready-timeout",
+                str(ready_timeout),
+            ]
+            env: dict[str, str] = {}
+            if ghidra_mode == "headless":
+                args.extend(("--headless", "--binary", str(binary.resolve())))
+                if ghidra_install_dir:
+                    args.extend(("--ghidra-install-dir", str(ghidra_install_dir.resolve())))
+                    env["GHIDRA_INSTALL_DIR"] = str(ghidra_install_dir.resolve())
+                if ghidra_extension_jar:
+                    args.extend(("--extension-jar", str(ghidra_extension_jar.resolve())))
+            else:
+                args.extend(("--ghidra-server", ghidra_server))
+            return args, env
+
+        root_args, root_env = _ghidra_args(target)
+        server_binary_ids = {"ghidra": binary_id}
         claude_servers: dict[str, object] = {
-            "ghidra": {"command": uvx, "args": ghidra_args, "env": ghidra_env}
+            "ghidra": {"command": uvx, "args": root_args, "env": root_env}
         }
         opencode_servers: dict[str, object] = {
             "ghidra": {
                 "type": "local",
                 "codemode": False,
-                "command": [uvx, *ghidra_args],
-                "environment": ghidra_env,
+                "command": [uvx, *root_args],
+                "environment": root_env,
             }
         }
+        for session_id, session_path in ghidra_sessions:
+            session_args, session_env = _ghidra_args(session_path)
+            session_name = f"ghidra-{session_id[:8]}"
+            server_binary_ids[session_name] = session_id
+            claude_servers[session_name] = {
+                "command": uvx, "args": session_args, "env": session_env,
+            }
+            opencode_servers[session_name] = {
+                "type": "local",
+                "codemode": False,
+                "command": [uvx, *session_args],
+                "environment": session_env,
+            }
         path_python = os.environ.get("AGENT_PATH_BACKEND_PYTHON")
         if path_python:
             path_command = [path_python, "-m", "agent.path_server", "--binary", str(target.resolve())]
@@ -171,9 +195,12 @@ class MarkdownCwePlugin:
             for name in claude_servers:
                 server = claude_servers[name]
                 command = [server["command"], *server["args"]]
+                # paths 后端只分析根二进制，沿用根 binaryID；组件 Ghidra 会话各用自己的。
+                server_binary_id = server_binary_ids.get(name, binary_id)
                 proxy = [sys.executable, "-m", "agent.evidence_proxy",
                          "--directory", str(artifact_dir.resolve()), "--server", name,
-                         "--group-id", analysis_group_id, "--binary-id", binary_id, "--", *command]
+                         "--group-id", analysis_group_id,
+                         "--binary-id", server_binary_id, "--", *command]
                 server.update(command=proxy[0], args=proxy[1:])
                 server["env"]["PYTHONPATH"] = str(source_root.resolve())
                 opencode_servers[name]["command"] = proxy

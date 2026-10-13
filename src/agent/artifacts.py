@@ -41,18 +41,22 @@ class ArtifactStore:
 
     def records(self) -> list[dict[str, Any]]:
         records = []
-        for tool in ("ghidra", "paths"):
-            path = self.directory / "raw" / f"{tool}.jsonl"
-            if not path.exists():
-                continue
+        journals: list[tuple[str, str]] = []  # (tool, 相对 raw 路径)
+        raw_dir = self.directory / "raw"
+        for path in sorted(raw_dir.glob("ghidra*.jsonl")):
+            journals.append(("ghidra", path.name))
+        if (raw_dir / "paths.jsonl").exists():
+            journals.append(("paths", "paths.jsonl"))
+        for tool, name in journals:
+            path = raw_dir / name
             if path.stat().st_size > MAX_JOURNAL_BYTES + MAX_TOOL_BYTES:
-                raise ValueError(f"工具记录超过预算: {tool}")
+                raise ValueError(f"工具记录超过预算: {name}")
             for number, line in enumerate(path.read_bytes().splitlines(), 1):
                 try:
                     item = json.loads(line)
                 except json.JSONDecodeError as exc:
                     raise ValueError(f"工具记录损坏: {path}:{number}") from exc
-                item["rawRef"] = f"raw/{tool}.jsonl:{number}"
+                item["rawRef"] = f"raw/{name}:{number}"
                 item["sha256"] = hashlib.sha256(line).hexdigest()
                 records.append(item)
         return records

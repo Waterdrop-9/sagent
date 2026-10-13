@@ -125,7 +125,10 @@ def serve(command: list[str], directory: Path, server: str, group_id: str, binar
 def main() -> int:
     parser = argparse.ArgumentParser(description="工具证据记录代理")
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--server", choices=("ghidra", "paths"), required=True)
+    parser.add_argument(
+        "--server", required=True,
+        help="证据服务名：ghidra / paths / ghidra-<组件binaryID前缀>（多二进制会话）",
+    )
     parser.add_argument("--group-id", required=True)
     parser.add_argument("--binary-id", required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
