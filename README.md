@@ -21,10 +21,21 @@ PYTHONPATH=src python3 -m agent.cli --target <ELF路径> --cwe CWE-78 \
 PYTHONPATH=src python3 -m pytest tests/ -q
 ```
 
-也可以全程用 Docker 部署（见 部署与使用手册 §7，包含本地模型支持）。
+也可以全程用 Docker 部署。**部署机只需 Docker + 离线镜像包**，一键脚本
+`deploy.sh` 自动完成加载镜像→生成配置→跑分析→打印结论：
+
+```bash
+bash deploy.sh /path/to/sagent-minimal.tar.gz   # 交互式
+# 或环境变量全自动：SAGENT_MODEL=deepseek DEEPSEEK_API_KEY=sk-xxx \
+#   SAGENT_TARGET=/path/to/server SAGENT_MODE=all bash deploy.sh
+```
+
+完整的分平台手把手教程见 [部署教程](部署教程.md)（macOS/Linux/Windows、云端 DeepSeek
+与本地 ollama 两种模型接入、批量运行、排错手册）。
 
 ## 文档导航
 
+- [部署教程](部署教程.md)：**从镜像包到批量运行的分平台手把手教程**（含一键脚本 deploy.sh）。
 - [设计总纲](设计总纲.md)：目标、当前范围、分析对象、静态分析能力、安全边界与后续方向（含未来可改动方向清单）。
 - [部署与使用手册](部署与使用手册.md)：安装、配置、Ghidra MCP、多二进制会话、目录布局、断点续跑。
 - [术语表](术语表.md)：样本、分析组、证据、发现项等领域概念。

@@ -60,6 +60,12 @@ opencode 装完后的 `/usr/local/bin/opencode` 软链（npm 全局 bin 在
 
 ## 部署与运行
 
+一键脚本（推荐）：仓库根目录 `deploy.sh`，交互式或环境变量全自动，自动完成
+加载镜像→生成 config.toml→定位目标→跑分析→打印结论。分平台手把手教程见
+仓库根 [部署教程.md](../部署教程.md)。
+
+手动等价命令：
+
 ```bash
 docker load < sagent-minimal.tar.gz
 docker run --rm -v "$PWD:/work" sagent:minimal \
