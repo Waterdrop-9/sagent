@@ -21,13 +21,19 @@ JSON。每一条候选链都必须按本协议逐一给出判定，不允许跳�
 3. **写报告**：confirmed finding 在 limitations 里写明"驳斥清单 R1-R4 已逐项核验"及结论；
    rejected finding 写具体反证；unresolved 写缺什么证据。
 
-## 先验判定条款（依赖库）
+## 先验判定条款（依赖库，三档规则）
 
-- 常见库（libc/libm/liblog/libauth 等）的内部语义可以借助模型先验知识判定，
-  但必须同时有机械证据支撑（导入表符号、PLT 跳转、反汇编调用点、strings 常量）。
-- 使用先验知识时，finding 的 limitations 必须写明"依赖库语义依据模型先验知识"，
-  不得伪造不存在的 evidenceID。
-- 自定义库（非白名单、无法确认语义的库）一律 unresolved，禁止靠猜 confirmed。
+先看依赖库文件是否在分析组内，按以下三档执行：
+
+1. **文件在场（组件已加载）→ 禁止先验确认**：该库有独立的 GhidraMCP 会话
+   （用户提示词末尾的「Ghidra MCP 会话映射」列出），必须用会话工具取得机械证据
+   （反编译、交叉引用、函数模型）并引用 evidenceID，不允许用先验知识代替查询。
+   查询失败/超时按证据规则重试；实在拿不到证据的写 unresolved，不得靠猜 confirmed。
+2. **常见库（libc/libm/liblog/libauth 等）文件缺失 → 先验 + limitations**：
+   内部语义可以借助模型先验知识判定，但必须同时有机械证据支撑（导入表符号、
+   PLT 跳转、反汇编调用点、strings 常量），finding 的 limitations 必须写明
+   "依赖库语义依据模型先验知识"，不得伪造不存在的 evidenceID。
+3. **自定义库（非白名单、无法确认语义的库）文件缺失 → 一律 unresolved**，禁止靠猜 confirmed。
 
 ## 效率约束
 

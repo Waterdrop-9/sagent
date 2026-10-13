@@ -18,10 +18,9 @@ EVIDENCE_ID_PATTERN = re.compile(r"ev-[0-9a-f]{20}")
 
 def _raw_evidence_ids(run_dir: Path) -> set[str]:
     ids: set[str] = set()
-    for name in ("ghidra.jsonl", "paths.jsonl"):
-        journal = run_dir / "raw" / name
-        if not journal.exists():
-            continue
+    # 多二进制模式下每个 GhidraMCP 会话各写一份 ghidra-<binaryID[:8]>.jsonl，
+    # 故按 glob 收集 raw/ 下全部证据日志（ghidra.jsonl / paths.jsonl / ghidra-*.jsonl）。
+    for journal in sorted((run_dir / "raw").glob("*.jsonl")):
         for line in journal.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 try:
