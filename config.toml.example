@@ -15,6 +15,9 @@ api_key = "sk-替换为你的 DeepSeek API Key"
 base_url = "https://api.deepseek.com/v1"
 # Agent 单次运行最长时间（秒）。
 timeout = 3600
+# 会话级重试：opencode 非零退出（provider 瞬时超时等）时复用同一 prompt
+# 重跑整个会话的最大次数（默认 2；设 0 关闭）。启动竞态重试不受此控制。
+session_retries = 2
 
 # 外部 PoC 阶段默认关闭。启用时只读取 prompt，不执行生成的 PoC。
 # 模板使用仓库内的 prompts/poc-stage.md；相对路径按 config.toml 所在目录解析。
