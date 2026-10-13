@@ -11,6 +11,14 @@ ENV LANG=C.UTF-8 \
     AGENT_PATH_BACKEND_PYTHON=/usr/bin/python3 \
     PYTHONPATH=/opt/sagent/src
 
+# 基础镜像自带的 opencode 1.15.12 不支持 `run --standalone` 与 `providers` 配置键，
+# 升级到 2.0.26（与宿主一致）；2.x 需要 Node ≥22，顺带经 `n` 升级 node。
+# 该步骤需要构建机可访问 nodejs.org 与 npm registry。
+RUN rm -rf /usr/local/lib/node_modules/@opencode/cli /usr/local/bin/opencode \
+ && npm install -g n && n 26.5.0 && hash -r \
+ && npm install -g --allow-scripts=@opencode/cli @opencode/cli@2.0.26 \
+ && opencode --version
+
 # Ghidra 12.0.4（与宿主实测版本一致）
 COPY ghidra_12.0.4_PUBLIC /opt/ghidra_12.0.4_PUBLIC
 

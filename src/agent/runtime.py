@@ -259,13 +259,18 @@ class OpenCodeRuntime(_CliRuntime):
             environment=environment,
             session_retries=session_retries,
         )
+        self._standalone: bool | None = None
 
     def build_command(self, request: AgentRequest) -> tuple[str, ...]:
         prompt = request.user_prompt
         if request.system_prompt:
             prompt = f"[SYSTEM INSTRUCTIONS]\n{request.system_prompt}\n\n[USER TASK]\n{prompt}"
         # 使用独立服务，确保本次请求读取 Sagent 生成的 provider/MCP 配置。
-        command = [self.executable, "run", "--standalone"]
+        # `--standalone` 是 opencode ≥1.16 的旗标；旧版 run 本身就是无头模式，
+        # 传入该旗标会直接打帮助并退出（容器内 1.15.12 实测）。
+        command = [self.executable, "run"]
+        if self._supports_standalone():
+            command.append("--standalone")
         if request.model:
             model = request.model
             if request.provider and "/" not in model:
@@ -273,6 +278,22 @@ class OpenCodeRuntime(_CliRuntime):
             command.extend(("--model", model))
         command.append(prompt)
         return tuple(command)
+
+    def _supports_standalone(self) -> bool:
+        """opencode 是否认识 `run --standalone`；探测结果缓存到实例。"""
+        if self._standalone is None:
+            try:
+                probe = subprocess.run(
+                    [self.executable, "run", "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                self._standalone = "--standalone" in (probe.stdout or "")
+            except (OSError, subprocess.TimeoutExpired):
+                # 底座不可用或探测超时：宁可不加旗标，让真正运行时的报错说话。
+                self._standalone = False
+        return self._standalone
 
     def _run_with_startup_retry(self, request: AgentRequest) -> AgentResponse:
         """standalone 服务启动竞态时退避重试；其它错误原样抛出。"""

@@ -31,11 +31,20 @@ python3 -m venv sagent-venv && ./sagent-venv/bin/pip install \
 cp -R ../src ../prompts ../docker/Dockerfile ../docker/entrypoint.sh .
 
 # 3. 构建（amd64 平台警告可忽略——本机即为 arm64 宿主上的模拟运行基线）：
-docker build -t sagent:r1 .
+#    - 构建步骤需联网（升级 opencode：nodejs.org + npm registry）；
+#    - 基础镜像若为本地 docker load 导入（无远端 tag），需经典构建器：
+DOCKER_BUILDKIT=0 docker build -t sagent:r1 .
 
 # 4.（可选）导出给部署机：
 docker save sagent:r1 | gzip > sagent-r1.tar.gz
 ```
+
+## 网络与代理（重要）
+
+镜像运行需要容器能访问 LLM API（或本地模型）。macOS Docker Desktop 的代理模式若指向
+已失效的本地代理（如 `manual → 127.0.0.1:7890`），容器内全部 HTTPS 会 TLS 失败
+（`SSL_ERROR_SYSCALL`）。修复：Docker Desktop 设置 → Resources → Proxies 改为
+`System proxy`（跟随 macOS 系统代理，实测可用），或改 `Manual` 指向可用的代理。
 
 ## 部署与运行
 

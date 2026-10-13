@@ -251,6 +251,29 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(response.text, 'poc response from opencode')
         self.assertIn('confirmed finding poc', response.command)
 
+    def test_build_command_drops_standalone_for_old_opencode(self):
+        # opencode 1.15.x 没有 `run --standalone`（实测传入直接打帮助退出）；
+        # 2.x 有。命令按 help 输出自适应。
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / 'opencode-fake'
+            fake.write_text('#!/bin/sh\nprintf -- "--model some help text\\n"\n')
+            fake.chmod(0o755)
+            runtime = OpenCodeRuntime(executable=str(fake), timeout=5)
+            request = AgentRequest(
+                system_prompt='sys', user_prompt='task', cwd=Path(tmp),
+                model='deepseek-flash', provider='deepseek', mcp_config=None,
+            )
+            old_cmd = runtime.build_command(request)
+            self.assertNotIn('--standalone', old_cmd)
+
+            fake.write_text('#!/bin/sh\nprintf -- "--standalone private server\\n"\n')
+            fake.chmod(0o755)
+            new_runtime = OpenCodeRuntime(executable=str(fake), timeout=5)
+            new_cmd = new_runtime.build_command(request)
+            self.assertIn('--standalone', new_cmd)
+            self.assertIn('--model', new_cmd)
+            self.assertIn('deepseek/deepseek-flash', new_cmd)
+
 
 class ArtifactTests(unittest.TestCase):
     def setUp(self):
