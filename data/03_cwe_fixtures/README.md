@@ -19,13 +19,13 @@ docker run --rm --platform linux/amd64 -v "$PWD":/work -w /work \
 
 ## Ground truth 表
 
-| 夹具 | CWE | 漏洞 | sink | 触发方式 | 期望判定 |
-|---|---|---|---|---|---|
-| fixture_134.c | CWE-134 | 未校验格式字符串 | `printf(buf)` | 发送含 `%x/%n` 的字符串 | confirmed |
-| fixture_190.c | CWE-190 | 整数溢出（len+4 回绕） | `malloc(len+4)` 后按 len 写入 | 发送 4 字节 `0xFFFFFFFC` 长度 | confirmed |
-| fixture_415.c | CWE-415 | Double Free（错误路径+无条件） | 同路径两次 `free(p)` | 发送以 `'x'` 开头的数据 | confirmed |
-| fixture_416.c | CWE-416 | Use-After-Free | `free(p)` 后 `send(...,p,...)` | 发送任意数据 | confirmed |
-| fixture_606.c | CWE-606 | 未校验输入控制循环 | `for (i=0; i<count; i++) data[i]=...` | 发送 4 字节 count（>16） | confirmed |
+| 夹具 | CWE | 漏洞 | sink | 监听端口 | 触发方式 | 期望判定 |
+|---|---|---|---|---|---|---|
+| fixture_134.c | CWE-134 | 未校验格式字符串 | `printf(buf)` | 13400 | 发送含 `%x/%n` 的字符串 | confirmed |
+| fixture_190.c | CWE-190 | 整数溢出（len+4 回绕） | `malloc(len+4)` 后按 len 写入 | 19000 | 发送 4 字节 `0xFFFFFFFC` 长度 | confirmed |
+| fixture_415.c | CWE-415 | Double Free（错误路径+无条件） | 同路径两次 `free(p)` | 41500 | 发送以 `'x'` 开头的数据 | confirmed |
+| fixture_416.c | CWE-416 | Use-After-Free | `free(p)` 后 `send(...,p,...)` | 41600 | 发送任意数据 | confirmed |
+| fixture_606.c | CWE-606 | 未校验输入控制循环 | `for (i=0; i<count; i++) data[i]=...` | 60600 | 发送 4 字节 count（>16） | confirmed |
 
 ## 使用
 

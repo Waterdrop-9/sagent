@@ -97,16 +97,17 @@ class ArtifactStore:
         if context["pendingDependencies"]:
             ledger.add_unresolved(f"存在未解析依赖: {context['pendingDependencies']}")
         if len(binary_ids) > 1:
-            ledger.add_unresolved("当前工具只加载 root binary，本地依赖及跨组件路径尚未覆盖")
+            ledger.add_unresolved("路径查询后端只覆盖根二进制，依赖组件的跨组件路径尚未覆盖")
         referenced = set()
         invalid_references = set()
         objects = [*report["findings"], *report["coverage"].get("attackSurfaces", []),
                    *report["coverage"].get("functionModels", [])]
         # 证据核验只回答"引用是否真实可查"：evidenceID 存在、属于本分析组且工具
         # 未报错即可。不要求证据记录的 binaryID 与引用对象一致——分析组内跨
-        # 二进制调用链（server→libauth）天然需要跨 binary 引用，且当前 Ghidra
-        # 会话只加载 root binary，所有工具记录都打上 root 的 binaryID；按
-        # binaryID 强相等会把真实引用误判为"无法核验"。
+        # 二进制调用链（server→libauth）天然需要跨 binary 引用，且证据记录的
+        # binaryID 取决于产生它的会话（任务 D 起 Ghidra 按组件多会话加载，
+        # 每条记录带所属会话的 binaryID；paths 后端仍只有根二进制）；
+        # 按 binaryID 强相等会把真实引用误判为"无法核验"。
         for item in objects:
             valid_ids = []
             for evidence_id in item.get("evidenceIDs", []):

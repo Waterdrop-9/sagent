@@ -139,9 +139,6 @@ def ledger_from_report(
         ledger.register_function_model(FunctionSecurityModel.from_dict(item))
     for query in queries:
         ledger.record_path_query(query)
-    for finding in report["findings"]:
-        if finding["status"] in {"candidate", "inconclusive"}:
-            ledger.add_unresolved(f"待复核 finding: {finding['binaryID']}/{finding['functionID']}")
     for item in report["unresolved"]:
         ledger.add_unresolved(item if isinstance(item, str) else item["reason"])
     return ledger

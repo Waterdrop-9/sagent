@@ -9,7 +9,7 @@
 分析组 = root 二进制 + 全部依赖库。本阶段目标是把可疑面**全部列出来**，不允许以"与本 CWE 无关"或"证据不足"为由跳过枚举：
 
 1. **root 二进制用 GhidraMCP**：枚举所有危险调用点——命令执行（`system`/`popen`/`exec*`）、文件操作（`fopen`/`fwrite`/`unlink`）、字符串/内存（`strcpy`/`strcat`/`sprintf`/`memcpy`）、认证与凭据（硬编码常量、token 比较）等，逐项记录地址与所在函数，引用 evidenceIDs。
-2. **依赖库（如 libauth.so）未加载进 Ghidra，用 bash 里的 ELF 工具枚举**：`nm -D` 查导出符号、`objdump -d` 查危险调用点、`strings` 查硬编码串。这些命令不产生 evidenceID——候选记入 `unresolved`（注明证据来源为本地 ELF 解析与地址），不得写进 findings。
+2. **依赖库**：有专属 GhidraMCP 会话的组件（见「Ghidra MCP 会话映射」，会话名 `ghidra-<binaryID前8位>`）用该会话枚举危险调用点并引用 evidenceIDs；没有专属会话的库用 bash 里的 ELF 工具枚举：`nm -D` 查导出符号、`objdump -d` 查危险调用点、`strings` 查硬编码串。这些命令不产生 evidenceID——候选记入 `unresolved`（注明证据来源为本地 ELF 解析与地址），不得写进 findings。
 3. 每个候选给出：binaryID/文件名、函数与地址、sink 类型、初步可达性线索（谁调用、是否在网络链路上）。全组枚举结果进入 `coverage.functionModels`（有 evidenceID 的）与 `unresolved`（lib 侧/无 evidenceID 的），**不允许漏列**。
 
 ## 第二阶段：agent 判断（收紧降误报）

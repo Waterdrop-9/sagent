@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -174,9 +175,9 @@ class AngrPathBackend:
 
 def _walk_definitions(graph: Any, root: Any, max_depth: int, max_nodes: int) -> list[Any]:
     seen = {root}
-    queue = [(root, 0)]
+    queue = deque([(root, 0)])
     while queue and len(seen) < max_nodes:
-        node, depth = queue.pop(0)
+        node, depth = queue.popleft()
         if depth >= max_depth:
             continue
         for predecessor in graph.predecessors(node):

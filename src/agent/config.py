@@ -44,6 +44,7 @@ class GhidraMcpConfig:
     uvx: str
     python: str
     package: str
+    command: str | None
     ready_timeout: int
     install_dir: Path | None
     extension_jar: Path | None
@@ -165,6 +166,9 @@ def load_ghidra_config(environ: dict[str, str] | None = None) -> GhidraMcpConfig
             "GHIDRA_MCP_PACKAGE",
             "ghidra-mcp[headless] @ git+https://github.com/LaurieWired/GhidraMCP",
         ),
+        # 容器等无 uvx/网络的部署用 GHIDRA_MCP_COMMAND 直接指定启动命令，
+        # 例如 "/opt/sagent-venv/bin/python -m ghidra_mcp.cli"。
+        command=env.get("GHIDRA_MCP_COMMAND") or None,
         ready_timeout=ready_timeout,
         install_dir=Path(env["GHIDRA_INSTALL_DIR"]) if env.get("GHIDRA_INSTALL_DIR") else None,
         extension_jar=(Path(env["GHIDRA_MCP_EXTENSION_JAR"]) if env.get("GHIDRA_MCP_EXTENSION_JAR") else None),

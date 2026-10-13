@@ -501,7 +501,6 @@ def _run_pair(payload: dict[str, Any]) -> dict[str, Any]:
             report["artifactDirectory"] = str(directory)
             usage = report.get("usage") or {}
             # 一行读完本轮全部结论：耗时/token 之后跟 findings 与 PoC 状态，
-            # 一行读完本轮全部结论：耗时/token 之后跟 findings 与 PoC 状态，
             # 是监视进度与事后核算的主入口。
             poc_summary = report.get("poc", {})
             if resumed_report is not None:
@@ -707,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
         failures = sum(1 for report in reports if "error" in report)
         LOG.info(
             "运行全部结束 groups=%d 成功=%d 失败=%d 复用=%d 总耗时=%.1fs",
-            len(reports) + len(skipped_reports), len(reports) - failures, failures,
+            len(reports), len(reports) - len(skipped_reports) - failures, failures,
             len(skipped_reports), time.monotonic() - run_started,
         )
         print(json.dumps(reports[0] if len(reports) == 1 else {"analysisGroups": reports}, ensure_ascii=False, indent=2))

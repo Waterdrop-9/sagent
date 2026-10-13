@@ -7,7 +7,6 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path

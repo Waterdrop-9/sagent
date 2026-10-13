@@ -14,12 +14,12 @@ import hashlib
 import json
 import logging
 import re
-import struct
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from .analysis_context import AnalysisGroupContext
 from .path_query import AngrPathBackend, PathQuery, PathQueryError
@@ -404,10 +404,10 @@ def _backward_paths(
 ) -> list[list[tuple[int, int]]]:
     """从 start 沿调用图反向 BFS，返回到达目标函数的路径（(from,to) 边表）。"""
     paths: list[list[tuple[int, int]]] = []
-    queue: list[tuple[int, list[tuple[int, int]]]] = [(start, [])]
+    queue: deque[tuple[int, list[tuple[int, int]]]] = deque([(start, [])])
     seen: set[tuple[int, tuple[int, int]]] = {(start, 0)}
     while queue and len(paths) < 64:
-        node, edges = queue.pop(0)
+        node, edges = queue.popleft()
         if len(edges) >= max_hops:
             continue
         for predecessor in cfg.callers.get(node, ()):
@@ -671,7 +671,6 @@ def _apply_classification(chains: list[dict[str, Any]], classification: dict[str
     """分类结果只挂 semanticHints，不删链、不改 verdict。"""
     if not classification:
         return chains
-    external = classification.get("externalFunctions") or []
     wrappers = classification.get("wrapperHints") or []
     lib_class = classification.get("libClass") or {}
     hints_by_sink = {

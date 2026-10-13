@@ -108,7 +108,7 @@ prompt_file = "{ROOT / 'prompts/poc-stage.md'}"
         self.assertEqual(report["findings"][0]["status"], "confirmed")
         # 多二进制组自带 unresolved 项，覆盖门禁应判 inconclusive 而不是失败。
         self.assertEqual(report["analysisStatus"], "inconclusive")
-        self.assertTrue(any("本地依赖及跨组件路径尚未覆盖" in item for item in report["unresolved"]))
+        self.assertTrue(any("依赖组件的跨组件路径尚未覆盖" in item for item in report["unresolved"]))
         # 工具记录与模型原文都落盘。
         self.assertTrue((run / "raw" / "agent.txt").exists())
         self.assertTrue((run / "raw" / "ghidra.jsonl").exists())

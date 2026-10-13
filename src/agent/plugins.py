@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -124,22 +125,33 @@ class MarkdownCwePlugin:
         ghidra_uvx = ghidra.uvx
         ghidra_python = ghidra.python
         ghidra_package = ghidra.package
+        ghidra_command = ghidra.command
         ready_timeout = ghidra.ready_timeout
         uvx = shutil.which(ghidra_uvx) or ghidra_uvx
         ghidra_install_dir = ghidra.install_dir
         ghidra_extension_jar = ghidra.extension_jar
 
-        def _ghidra_args(binary: Path) -> tuple[list[str], dict[str, str]]:
-            args = [
-                "--python",
-                ghidra_python,
-                "--from",
-                ghidra_package,
-                "ghidra-mcp",
-                "--ready-timeout",
-                str(ready_timeout),
-            ]
+        def _ghidra_args(binary: Path) -> tuple[list[str], list[str], dict[str, str]]:
+            """返回 (命令前缀, 参数, 环境)。
+
+            命令前缀：未设 GHIDRA_MCP_COMMAND 时为 [uvx]，参数走 uvx 形式；
+            设了（容器内等无 uvx/网络的部署）则直接用其分词结果作为前缀。
+            """
             env: dict[str, str] = {}
+            if ghidra_command:
+                prefix = shlex.split(ghidra_command)
+                args = ["--ready-timeout", str(ready_timeout)]
+            else:
+                prefix = [uvx]
+                args = [
+                    "--python",
+                    ghidra_python,
+                    "--from",
+                    ghidra_package,
+                    "ghidra-mcp",
+                    "--ready-timeout",
+                    str(ready_timeout),
+                ]
             if ghidra_mode == "headless":
                 args.extend(("--headless", "--binary", str(binary.resolve())))
                 if ghidra_install_dir:
@@ -149,32 +161,35 @@ class MarkdownCwePlugin:
                     args.extend(("--extension-jar", str(ghidra_extension_jar.resolve())))
             else:
                 args.extend(("--ghidra-server", ghidra_server))
-            return args, env
+            return prefix, args, env
 
-        root_args, root_env = _ghidra_args(target)
+        root_prefix, root_args, root_env = _ghidra_args(target)
         server_binary_ids = {"ghidra": binary_id}
         claude_servers: dict[str, object] = {
-            "ghidra": {"command": uvx, "args": root_args, "env": root_env}
+            "ghidra": {"command": root_prefix[0], "args": [*root_prefix[1:], *root_args],
+                       "env": root_env}
         }
         opencode_servers: dict[str, object] = {
             "ghidra": {
                 "type": "local",
                 "codemode": False,
-                "command": [uvx, *root_args],
+                "command": [*root_prefix, *root_args],
                 "environment": root_env,
             }
         }
         for session_id, session_path in ghidra_sessions:
-            session_args, session_env = _ghidra_args(session_path)
+            session_prefix, session_args, session_env = _ghidra_args(session_path)
             session_name = f"ghidra-{session_id[:8]}"
             server_binary_ids[session_name] = session_id
             claude_servers[session_name] = {
-                "command": uvx, "args": session_args, "env": session_env,
+                "command": session_prefix[0],
+                "args": [*session_prefix[1:], *session_args],
+                "env": session_env,
             }
             opencode_servers[session_name] = {
                 "type": "local",
                 "codemode": False,
-                "command": [uvx, *session_args],
+                "command": [*session_prefix, *session_args],
                 "environment": session_env,
             }
         path_python = os.environ.get("AGENT_PATH_BACKEND_PYTHON")

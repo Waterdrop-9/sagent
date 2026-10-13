@@ -1,9 +1,12 @@
-# Workflow 脚本
+# 脚本目录
 
-脚本按分析工作流归类：
+开发与运维用的辅助脚本，全部只做静态查询，不执行样本：
 
-- `static_analysis/`：路径后端、静态分析工具健康检查；
-- `workflow/`：后续用于分析组、证据和报告工作流命令；
-- `agent_stage/`：后续用于 Agent 阶段和外部 PoC 阶段命令。
+- `static_analysis/check_path_backend.py`：路径查询后端健康检查。spawn
+  `path_server` 子进程、走 JSON-RPC 发一次查询并校验响应形状；
+- `check_evidence_integrity.py`：证据完整性核验。按 run 目录里的 `raw/*.jsonl`
+  （Ghidra 多会话日志 + paths 日志）逐条检查 report.json 引用的 evidenceID
+  是否真实可查、是否属于本分析组。
 
-目前真正可执行的工具检查是 `static_analysis/check_path_backend.py`。脚本只做静态查询，不执行样本。
+未来方向：把「finding 的 evidenceID → raw 日志文件+行号」映射检查并入
+`check_evidence_integrity.py`（当前只核验存在性，不核验逐条映射）。

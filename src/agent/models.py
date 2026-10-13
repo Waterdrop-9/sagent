@@ -16,6 +16,12 @@ class PropagationMapping:
     callsite_address: str | None = None
     evidence_ids: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        # fromParam/toFunction 是传播映射的主键：两者缺一说明模型输出不完整，
+        # 尽早报错而不是让 None 流进最终报告（报告里出现 null 主键无法追溯）。
+        if not self.from_param or not self.to_function:
+            raise ValueError("传播映射缺少 fromParam/toFunction")
+
     def to_dict(self) -> dict[str, object]:
         return {
             "fromParam": self.from_param,

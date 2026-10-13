@@ -430,11 +430,12 @@ class PluginMcpTests(unittest.TestCase):
     """多二进制 Ghidra 会话（任务 D）：mcp 配置形状与证据代理的 binary-id 映射。"""
 
     @staticmethod
-    def _ghidra_config():
+    def _ghidra_config(command=None):
         from agent.config import GhidraMcpConfig
         return GhidraMcpConfig(
             mode='headless', server='http://127.0.0.1:8080', uvx='uvx',
-            python='/usr/bin/python3', package='ghidra_mcp', ready_timeout=120,
+            python='/usr/bin/python3', package='ghidra_mcp', command=command,
+            ready_timeout=120,
             install_dir=Path('/opt/ghidra'), extension_jar=Path('/tmp/GhidraMCP.jar'),
         )
 
@@ -467,6 +468,33 @@ class PluginMcpTests(unittest.TestCase):
         for command in (root_command, comp_command):
             self.assertIn('--group-id', command)
             self.assertIn('group-x', command)
+
+    def test_mcp_config_direct_command_overrides_uvx(self):
+        # 容器等无 uvx/网络的部署：GHIDRA_MCP_COMMAND 直接给出启动命令，
+        # 不再走 uvx --from 拉包路径。
+        plugin = Cwe78Plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'server'
+            root.write_bytes(b'')
+            config = plugin.mcp_config(
+                root, ROOT / 'src',
+                ghidra=self._ghidra_config(
+                    command='/opt/sagent-venv/bin/python -m ghidra_mcp.cli'),
+                binary_id='a' * 64,
+            )
+        servers = config['opencode']['mcp']['servers']
+        command = servers['ghidra']['command']
+        self.assertEqual(
+            command[:4],
+            ['/opt/sagent-venv/bin/python', '-m', 'ghidra_mcp.cli', '--ready-timeout'],
+        )
+        self.assertNotIn('uvx', command)
+        self.assertIn('--headless', command)
+        self.assertIn(str(root.resolve()), command)
+        # 同时保留 --ghidra-install-dir 与 --extension-jar 转发
+        self.assertIn('--ghidra-install-dir', command)
+        self.assertIn('/opt/ghidra', command)
+        self.assertIn('--extension-jar', command)
 
     def test_mcp_config_paths_server_with_component_sessions(self):
         # 真实故障：paths 后端在场时证据代理的 binary-id 映射曾 KeyError
