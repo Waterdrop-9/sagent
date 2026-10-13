@@ -547,6 +547,64 @@ class PluginMcpTests(unittest.TestCase):
         self.assertIn('a' * 64, servers['paths']['command'])
         self.assertNotIn('b' * 64, servers['paths']['command'])
 
+    def test_provider_anthropic_uses_messages_protocol_package(self):
+        # 本地模型常用 Anthropic 兼容端点：provider 名写成 anthropic 时，
+        # opencode 配置必须换成 Messages 协议的包，而不是默认 OpenAI 兼容包。
+        plugin = Cwe78Plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'server'
+            root.write_bytes(b'')
+            config = plugin.mcp_config(
+                root, ROOT / 'src', ghidra=self._ghidra_config(),
+                provider='anthropic', model='local-model',
+                api_key='key-1', base_url='http://127.0.0.1:8000',
+            )
+        self.assertEqual(
+            config['opencode']['model'], 'anthropic/local-model')
+        providers = config['opencode']['providers']
+        anthropic = providers['anthropic']
+        self.assertEqual(
+            anthropic['package'], '@opencode/ai/providers/anthropic')
+        # opencode 的 anthropic 包在 baseURL 后直接拼 /messages，不补 /v1，
+        # 所以 baseURL 必须归一化成以 /v1 结尾（实测请求路径 {baseURL}/messages）。
+        self.assertEqual(
+            anthropic['settings'],
+            {'apiKey': 'key-1', 'baseURL': 'http://127.0.0.1:8000/v1'})
+        self.assertEqual(anthropic['models'], {'local-model': {'name': 'local-model'}})
+
+    def test_anthropic_base_url_accepts_host_subpath_and_full_endpoint(self):
+        # 用户可能填主机地址、子路径或完整 messages 端点，归一化后都必须
+        # 以 /v1 结尾，让 opencode 拼出正确的 /v1/messages 请求。
+        cases = [
+            ('http://127.0.0.1:8000', 'http://127.0.0.1:8000/v1'),
+            ('http://127.0.0.1:8000/', 'http://127.0.0.1:8000/v1'),
+            ('http://127.0.0.1:8000/v1', 'http://127.0.0.1:8000/v1'),
+            ('http://127.0.0.1:8000/v1/messages', 'http://127.0.0.1:8000/v1'),
+            ('http://127.0.0.1:8000/messages', 'http://127.0.0.1:8000/v1'),
+            ('http://127.0.0.1:8000/anthropic', 'http://127.0.0.1:8000/anthropic/v1'),
+        ]
+        for given, expected in cases:
+            self.assertEqual(
+                Cwe78Plugin._anthropic_base_url(given), expected,
+                f'{given} 应归一化为 {expected}')
+
+    def test_provider_other_names_stay_openai_compatible(self):
+        # 其余 provider 名（deepseek/自定义名）必须保持 OpenAI 兼容包不变，
+        # 不能让协议选择变成隐式行为。
+        plugin = Cwe78Plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'server'
+            root.write_bytes(b'')
+            for name in ('deepseek', 'sagent'):
+                config = plugin.mcp_config(
+                    root, ROOT / 'src', ghidra=self._ghidra_config(),
+                    provider=name, model='m',
+                )
+                self.assertEqual(
+                    config['opencode']['providers'][name]['package'],
+                    '@opencode/ai/providers/openai-compatible',
+                    f'provider={name} 不应切换协议包')
+
 
 class _ProbeRuntime(_CliRuntime):
     """把命令收敛成打印 PWD 的探针脚本，用来验证环境修复。"""

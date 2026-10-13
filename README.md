@@ -31,7 +31,7 @@ bash deploy.sh /path/to/sagent-minimal.tar.gz   # 交互式
 ```
 
 完整的分平台手把手教程见 [部署教程](部署教程.md)（macOS/Linux/Windows、云端 DeepSeek
-与本地 ollama 两种模型接入、批量运行、排错手册）。
+与本地 Anthropic 兼容模型两种接入、批量运行、排错手册）。
 
 ## 文档导航
 

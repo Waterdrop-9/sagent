@@ -5,7 +5,7 @@
 # 从离线镜像包 sagent-minimal.tar.gz 开始，自动完成：
 #   1. 检查 Docker
 #   2. 加载镜像（已加载则跳过）
-#   3. 生成 config.toml（云端 DeepSeek / 本地 ollama / 自定义端点）
+#   3. 生成 config.toml（云端 DeepSeek / 本地 Anthropic 兼容模型 / 自定义 OpenAI 兼容端点）
 #   4. 定位待分析目标并映射挂载路径
 #   5. 跑小测试（--cwe CWE-78 --poc）或批量（--cwe all）
 #   6. 解析 report.json 打印结论
@@ -22,10 +22,10 @@
 # 支持的环境变量（全部可选，未设则交互询问）：
 #   SAGENT_TAR        镜像包路径（默认自动搜索当前目录/家目录）
 #   SAGENT_WORKDIR    工作目录，config.toml 与产物都放这里（默认 ./sagent-work）
-#   SAGENT_MODEL      模型接入：deepseek | ollama | custom
-#   SAGENT_API_KEY    API Key（deepseek/custom 用；ollama 可省略）
-#   SAGENT_BASE_URL   端点地址（custom 用；ollama/deepseek 自动推断）
-#   SAGENT_MODEL_NAME 模型名（默认 deepseek-chat / qwen2.5-coder:14b）
+#   SAGENT_MODEL      模型接入：deepseek | anthropic | custom
+#   SAGENT_API_KEY    API Key（三种接入都要；deepseek 用 sk-...）
+#   SAGENT_BASE_URL   端点地址（anthropic/custom 用；deepseek 自动推断）
+#   SAGENT_MODEL_NAME 模型名（deepseek 默认 deepseek-chat；anthropic/custom 必填）
 #   SAGENT_TARGET     待分析 ELF 或目录（宿主机路径）
 #   SAGENT_MODE       test（默认，单 CWE-78）| all（六类 CWE）
 #   SAGENT_WORKERS    并发 worker 数（默认 1）
@@ -101,14 +101,14 @@ CONF="$WORKDIR/config.toml"
 MODEL="${SAGENT_MODEL:-}"
 if [ -z "$MODEL" ]; then
   echo "  选择模型接入方式："
-  echo "    1) 云端 DeepSeek（需要部署机能出网）"
-  echo "    2) 本地模型 ollama（离线，OpenAI 兼容）"
+  echo "    1) 云端 DeepSeek（OpenAI 兼容，需要部署机能出网）"
+  echo "    2) 本地模型（Anthropic 兼容协议，配 URL + API Key）"
   echo "    3) 自定义 OpenAI 兼容端点（vLLM/LM Studio/其他）"
   ask "选择 [1/2/3]" "1"
   case "$ASK_REPLY" in
-    1|deepseek) MODEL=deepseek ;;
-    2|ollama)   MODEL=ollama ;;
-    3|custom)   MODEL=custom ;;
+    1|deepseek)  MODEL=deepseek ;;
+    2|anthropic)  MODEL=anthropic ;;
+    3|custom)     MODEL=custom ;;
     *) die "无效选择：$ASK_REPLY" ;;
   esac
 fi
@@ -122,17 +122,25 @@ case "$MODEL" in
     [ -z "$BASE_URL" ] && BASE_URL="https://api.deepseek.com/v1"
     if [ -z "$API_KEY" ]; then ask "DeepSeek API Key（sk-...）" ""; API_KEY="$ASK_REPLY"; fi
     [ -z "$API_KEY" ] && die "API Key 不能为空"
+    NETFLAG=""
     ;;
-  ollama)
-    [ -z "$MODEL_NAME" ] && MODEL_NAME="qwen2.5-coder:14b"
-    API_KEY="${API_KEY:-ollama}"   # 本地服务任意非空值
+  anthropic)
+    # Anthropic Messages 协议端点（本地模型常用）：base_url 填端点地址，
+    # 三种写法都行——主机地址（http://192.168.1.10:8000）、子路径
+    # （http://192.168.1.10:8000/anthropic）或完整 messages 端点
+    # （http://192.168.1.10:8000/v1/messages），脚本自动归一化。
+    if [ -z "$MODEL_NAME" ]; then ask "模型名" ""; MODEL_NAME="$ASK_REPLY"; fi
+    [ -z "$MODEL_NAME" ] && die "模型名不能为空"
     if [ "$OS" = "Darwin" ]; then
-      [ -z "$BASE_URL" ] && BASE_URL="http://host.docker.internal:11434/v1"
+      if [ -z "$BASE_URL" ]; then ask "base_url（本机服务用 http://host.docker.internal:端口）" ""; BASE_URL="$ASK_REPLY"; fi
       NETFLAG=""
     else
-      [ -z "$BASE_URL" ] && BASE_URL="http://127.0.0.1:11434/v1"
+      if [ -z "$BASE_URL" ]; then ask "base_url（如 http://127.0.0.1:8000；Linux 下自动加 --network host）" ""; BASE_URL="$ASK_REPLY"; fi
       NETFLAG="--network host"
     fi
+    [ -z "$BASE_URL" ] && die "base_url 不能为空"
+    if [ -z "$API_KEY" ]; then ask "API Key" ""; API_KEY="$ASK_REPLY"; fi
+    [ -z "$API_KEY" ] && die "API Key 不能为空"
     ;;
   custom)
     [ -z "$MODEL_NAME" ] && ask "模型名" ""; MODEL_NAME="${MODEL_NAME:-$ASK_REPLY}"
@@ -143,10 +151,14 @@ case "$MODEL" in
     ;;
 esac
 
+# provider 名决定协议包：anthropic 走 Anthropic Messages，其余走 OpenAI 兼容。
+PROVIDER_NAME="sagent"
+[ "$MODEL" = "anthropic" ] && PROVIDER_NAME="anthropic"
+
 cat > "$CONF" <<EOF
 [agent]
 runtime = "opencode"
-provider = "sagent"
+provider = "$PROVIDER_NAME"
 model = "$MODEL_NAME"
 api_key = "$API_KEY"
 base_url = "$BASE_URL"
@@ -157,7 +169,7 @@ session_retries = 2
 enabled = false
 prompt_file = "/opt/sagent/prompts/poc-stage.md"
 EOF
-ok "config.toml 已生成（provider=$MODEL model=$MODEL_NAME）"
+ok "config.toml 已生成（provider=$PROVIDER_NAME model=$MODEL_NAME）"
 
 # ---------- 5. 定位待分析目标 ----------
 say "第 4 步：定位待分析目标"

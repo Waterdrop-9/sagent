@@ -89,11 +89,24 @@ docker run --rm -v "$PWD:/work" sagent:minimal \
 
 `/work` 即宿主机工作目录：config.toml 放 `/work/config.toml`，产物目录也挂在其下。
 
-## 本地模型
+## 本地模型（Anthropic 兼容协议）
 
-镜像内 opencode provider 的 `base_url` 取自 config.toml，直接指向宿主机上的
-OpenAI-compatible 服务即可（macOS 用 `http://host.docker.internal:11434/v1`，
-Linux 用 `--network host` + `http://127.0.0.1:11434/v1`），无需改动镜像。
+本地模型服务只要提供 Anthropic Messages 兼容端点（`/v1/messages`），在
+config.toml 里把 `provider` 写成 `anthropic`、填 `base_url` 与 `api_key` 即可，
+无需改动镜像：
+
+```toml
+[agent]
+provider = "anthropic"
+model = "你的模型名"
+api_key = "你的APIKey"
+base_url = "http://host.docker.internal:8000"   # macOS/Windows；Linux 用 --network host + 127.0.0.1
+```
+
+`provider` 是协议选择开关：写成 `anthropic` 走 Anthropic Messages，
+其他名字一律走 OpenAI 兼容（`/v1/chat/completions`）。
+`base_url` 填主机地址 / 子路径 / 完整 messages 端点都可以，会自动归一化
+成 `…/v1` 前缀（最终请求打到 `…/v1/messages`）。
 
 ## 环境变量（镜像内已预设）
 

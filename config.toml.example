@@ -5,7 +5,12 @@
 [agent]
 # 后续开发主用 opencode；claude 作为辅助验证。
 runtime = "opencode"
-# 由 Agent 底座决定可用 provider，例如 anthropic、deepseek。
+# provider 决定走哪条协议：写成 anthropic 走 Anthropic Messages（/v1/messages），
+# 其他名字一律走 OpenAI 兼容（/v1/chat/completions）。
+# 本地 Anthropic 兼容模型示例：
+#   provider = "anthropic"
+#   base_url = "http://host.docker.internal:8000"   # 主机/子路径/完整端点均可，
+#                                                   # 会自动归一化成 …/v1
 provider = "deepseek"
 # 留空表示使用底座默认模型。
 model = "deepseek-flash"

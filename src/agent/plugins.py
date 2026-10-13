@@ -13,6 +13,15 @@ from typing import Protocol
 
 from .config import GhidraMcpConfig
 
+# provider 名 → opencode 内置 provider 包。只有协议不兼容的名字才需要映射：
+# anthropic 走 Anthropic Messages 协议（本地兼容端点常用），其余名字一律走
+# OpenAI 兼容包。用户想用 Anthropic 协议时把 config.toml 的 agent.provider
+# 写成 anthropic；base_url 填端点地址即可（主机/子路径/完整 messages 端点
+# 都会归一化，见 _anthropic_base_url）。
+_PROVIDER_PACKAGES: dict[str, str] = {
+    "anthropic": "@opencode/ai/providers/anthropic",
+}
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -231,6 +240,24 @@ class MarkdownCwePlugin:
         }
 
     @staticmethod
+    def _anthropic_base_url(base_url: str) -> str:
+        """把常见的端点写法统一成 anthropic provider 期望的形式（结尾带 /v1）。
+
+        opencode 的 anthropic 包直接在 baseURL 后拼 ``/messages``，不会补
+        ``/v1``（实测请求路径为 ``{baseURL}/messages``）。所以 baseURL 本身
+        必须含 ``/v1``。用户可能填主机地址（``http://h:8000``）、子路径
+        （``http://h:8000/anthropic``）或完整 messages 端点
+        （``http://h:8000/v1/messages``），统一收成 ``…/v1``：
+        先剥掉结尾的 ``/v1/messages`` 或 ``/messages``，再保证结尾是 ``/v1``。
+        """
+        stripped = base_url.rstrip("/")
+        for suffix in ("/v1/messages", "/messages"):
+            if stripped.endswith(suffix):
+                stripped = stripped[: -len(suffix)]
+                break
+        return stripped if stripped.endswith("/v1") else stripped + "/v1"
+
+    @staticmethod
     def _provider_config(
         provider: str | None,
         model: str | None,
@@ -242,12 +269,19 @@ class MarkdownCwePlugin:
         settings: dict[str, str] = {}
         if api_key:
             settings["apiKey"] = api_key
+        package = _PROVIDER_PACKAGES.get(provider, "@opencode/ai/providers/openai-compatible")
         if base_url:
-            settings["baseURL"] = base_url
+            # anthropic 包要求 baseURL 含 /v1（见 _anthropic_base_url），
+            # OpenAI 兼容包则原样透传。
+            settings["baseURL"] = (
+                MarkdownCwePlugin._anthropic_base_url(base_url)
+                if package == "@opencode/ai/providers/anthropic"
+                else base_url
+            )
         return {
             provider: {
                 "name": provider,
-                "package": "@opencode/ai/providers/openai-compatible",
+                "package": package,
                 "settings": settings,
                 "models": {model: {"name": model}},
             }
