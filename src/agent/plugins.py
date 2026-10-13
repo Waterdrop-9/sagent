@@ -1,0 +1,355 @@
+"""CWE prompt 和工具插件。"""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from .config import GhidraMcpConfig
+
+# provider 名 → opencode 内置 provider 包。只有协议不兼容的名字才需要映射：
+# anthropic 走 Anthropic Messages 协议（本地兼容端点常用），其余名字一律走
+# OpenAI 兼容包。用户想用 Anthropic 协议时把 config.toml 的 agent.provider
+# 写成 anthropic；base_url 填端点地址即可（主机/子路径/完整 messages 端点
+# 都会归一化，见 _anthropic_base_url）。
+_PROVIDER_PACKAGES: dict[str, str] = {
+    "anthropic": "@opencode/ai/providers/anthropic",
+}
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    input_schema: dict[str, object]
+
+
+class CwePlugin(Protocol):
+    cwe_id: str
+    name: str
+    system_prompt: str
+    tools: tuple[ToolSpec, ...]
+
+    def build_user_prompt(
+        self, goal: str, target: Path, analysis_context: str = ""
+    ) -> str: ...
+
+    def mcp_config(
+        self, target: Path, source_root: Path, **kwargs: object
+    ) -> dict[str, object]: ...
+
+
+class MarkdownCwePlugin:
+    """从 prompts/<cwe>/ 读取规则并共享 MCP 工具配置。"""
+
+    cwe_id = ""
+    name = ""
+
+    def __init__(self, prompt_root: Path | None = None) -> None:
+        root = prompt_root or Path(__file__).resolve().parents[2] / "prompts"
+        if not self.name or not self.cwe_id:
+            raise ValueError("CWE 插件必须声明 cwe_id 和 name")
+        self.prompt_file = root / f"{self.name}.md"
+        common_root = root / "common"
+        common_prompts = tuple(
+            self._read_file(common_root / name)
+            for name in (
+                "evidence-rules.md",
+                "attack-surface.md",
+                "source-sink-model.md",
+                "coverage-rules.md",
+                "per-chain-judgment.md",
+                "report-schema.md",
+            )
+        )
+        self.task_prompt = self._read_file(self.prompt_file)
+        self.system_prompt = "\n\n".join(common_prompts + (self.task_prompt,))
+
+    @staticmethod
+    def _read_file(path: Path) -> str:
+        try:
+            content = path.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise FileNotFoundError(f"prompt 不存在或不可读: {path}") from exc
+        if not content:
+            raise ValueError(f"prompt 为空: {path}")
+        return content
+
+    tools = (
+        ToolSpec(
+            name="query_sink_paths",
+            description="从指定 sink 函数的敏感参数反向查询跨函数数据依赖路径。",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "sink_function": {"type": "string"},
+                    "sink_argument": {"type": "integer", "minimum": 0},
+                },
+                "required": ["sink_function", "sink_argument"],
+                "additionalProperties": False,
+            },
+        ),
+    )
+
+    def build_user_prompt(
+        self, goal: str, target: Path, analysis_context: str = ""
+    ) -> str:
+        # 不用 str.format：模板里有 C 代码示例，字面花括号会被当成格式字段。
+        # 只做字面替换，模板没有占位符时也不受影响。
+        prompt = self.task_prompt.replace("{target}", str(target)).replace("{goal}", goal)
+        if analysis_context:
+            prompt += "\n\n## 分析组上下文\n\n```json\n" + analysis_context + "\n```"
+        return prompt
+
+    def mcp_config(
+        self,
+        target: Path,
+        source_root: Path,
+        *,
+        ghidra: GhidraMcpConfig,
+        provider: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        artifact_dir: Path | None = None,
+        analysis_group_id: str = "",
+        binary_id: str = "",
+        ghidra_sessions: tuple[tuple[str, Path], ...] = (),
+    ) -> dict[str, object]:
+        """为 Claude/OpenCode 生成 GhidraMCP 和可选证据工具配置。
+
+        ghidra_sessions: 除根二进制外，为分析组内每个组件额外启动一个
+        独立 Ghidra 会话（(binaryID, 绝对路径) 序列），会话名
+        ``ghidra-<binaryID 前 8 位>``，证据代理按会话各自的 binaryID 落盘。
+        """
+
+        ghidra_mode = ghidra.mode
+        ghidra_server = ghidra.server
+        ghidra_uvx = ghidra.uvx
+        ghidra_python = ghidra.python
+        ghidra_package = ghidra.package
+        ghidra_command = ghidra.command
+        ready_timeout = ghidra.ready_timeout
+        uvx = shutil.which(ghidra_uvx) or ghidra_uvx
+        ghidra_install_dir = ghidra.install_dir
+        ghidra_extension_jar = ghidra.extension_jar
+
+        def _ghidra_args(binary: Path) -> tuple[list[str], list[str], dict[str, str]]:
+            """返回 (命令前缀, 参数, 环境)。
+
+            命令前缀：未设 GHIDRA_MCP_COMMAND 时为 [uvx]，参数走 uvx 形式；
+            设了（容器内等无 uvx/网络的部署）则直接用其分词结果作为前缀。
+            """
+            env: dict[str, str] = {}
+            if ghidra_command:
+                prefix = shlex.split(ghidra_command)
+                args = ["--ready-timeout", str(ready_timeout)]
+            else:
+                prefix = [uvx]
+                args = [
+                    "--python",
+                    ghidra_python,
+                    "--from",
+                    ghidra_package,
+                    "ghidra-mcp",
+                    "--ready-timeout",
+                    str(ready_timeout),
+                ]
+            if ghidra_mode == "headless":
+                args.extend(("--headless", "--binary", str(binary.resolve())))
+                if ghidra_install_dir:
+                    args.extend(("--ghidra-install-dir", str(ghidra_install_dir.resolve())))
+                    env["GHIDRA_INSTALL_DIR"] = str(ghidra_install_dir.resolve())
+                if ghidra_extension_jar:
+                    args.extend(("--extension-jar", str(ghidra_extension_jar.resolve())))
+            else:
+                args.extend(("--ghidra-server", ghidra_server))
+            return prefix, args, env
+
+        root_prefix, root_args, root_env = _ghidra_args(target)
+        server_binary_ids = {"ghidra": binary_id}
+        claude_servers: dict[str, object] = {
+            "ghidra": {"command": root_prefix[0], "args": [*root_prefix[1:], *root_args],
+                       "env": root_env}
+        }
+        opencode_servers: dict[str, object] = {
+            "ghidra": {
+                "type": "local",
+                "codemode": False,
+                "command": [*root_prefix, *root_args],
+                "environment": root_env,
+            }
+        }
+        for session_id, session_path in ghidra_sessions:
+            session_prefix, session_args, session_env = _ghidra_args(session_path)
+            session_name = f"ghidra-{session_id[:8]}"
+            server_binary_ids[session_name] = session_id
+            claude_servers[session_name] = {
+                "command": session_prefix[0],
+                "args": [*session_prefix[1:], *session_args],
+                "env": session_env,
+            }
+            opencode_servers[session_name] = {
+                "type": "local",
+                "codemode": False,
+                "command": [*session_prefix, *session_args],
+                "environment": session_env,
+            }
+        path_python = os.environ.get("AGENT_PATH_BACKEND_PYTHON")
+        if path_python:
+            path_command = [path_python, "-m", "agent.path_server", "--binary", str(target.resolve())]
+            claude_servers["paths"] = {
+                "command": path_python,
+                "args": path_command[1:],
+                "env": {"PYTHONPATH": str(source_root.resolve())},
+            }
+            opencode_servers["paths"] = {
+                "type": "local",
+                "codemode": False,
+                "command": path_command,
+                "environment": {"PYTHONPATH": str(source_root.resolve())},
+            }
+        if artifact_dir:
+            for name in claude_servers:
+                server = claude_servers[name]
+                command = [server["command"], *server["args"]]
+                # paths 后端只分析根二进制，沿用根 binaryID；组件 Ghidra 会话各用自己的。
+                server_binary_id = server_binary_ids.get(name, binary_id)
+                proxy = [sys.executable, "-m", "agent.evidence_proxy",
+                         "--directory", str(artifact_dir.resolve()), "--server", name,
+                         "--group-id", analysis_group_id,
+                         "--binary-id", server_binary_id, "--", *command]
+                server.update(command=proxy[0], args=proxy[1:])
+                server["env"]["PYTHONPATH"] = str(source_root.resolve())
+                opencode_servers[name]["command"] = proxy
+                opencode_servers[name]["environment"]["PYTHONPATH"] = str(source_root.resolve())
+        return {
+            "claude": {"mcpServers": claude_servers},
+            "opencode": {
+                "$schema": "https://opencode.ai/config.json",
+                "model": f"{provider}/{model}" if provider and model else None,
+                "providers": self._provider_config(provider, model, api_key, base_url),
+                "mcp": {"servers": opencode_servers},
+            },
+        }
+
+    @staticmethod
+    def _anthropic_base_url(base_url: str) -> str:
+        """把常见的端点写法统一成 anthropic provider 期望的形式（结尾带 /v1）。
+
+        opencode 的 anthropic 包直接在 baseURL 后拼 ``/messages``，不会补
+        ``/v1``（实测请求路径为 ``{baseURL}/messages``）。所以 baseURL 本身
+        必须含 ``/v1``。用户可能填主机地址（``http://h:8000``）、子路径
+        （``http://h:8000/anthropic``）或完整 messages 端点
+        （``http://h:8000/v1/messages``），统一收成 ``…/v1``：
+        先剥掉结尾的 ``/v1/messages`` 或 ``/messages``，再保证结尾是 ``/v1``。
+        """
+        stripped = base_url.rstrip("/")
+        for suffix in ("/v1/messages", "/messages"):
+            if stripped.endswith(suffix):
+                stripped = stripped[: -len(suffix)]
+                break
+        return stripped if stripped.endswith("/v1") else stripped + "/v1"
+
+    @staticmethod
+    def _provider_config(
+        provider: str | None,
+        model: str | None,
+        api_key: str | None,
+        base_url: str | None,
+    ) -> dict[str, object]:
+        if not provider or not model:
+            return {}
+        settings: dict[str, str] = {}
+        if api_key:
+            settings["apiKey"] = api_key
+        package = _PROVIDER_PACKAGES.get(provider, "@opencode/ai/providers/openai-compatible")
+        if base_url:
+            # anthropic 包要求 baseURL 含 /v1（见 _anthropic_base_url），
+            # OpenAI 兼容包则原样透传。
+            settings["baseURL"] = (
+                MarkdownCwePlugin._anthropic_base_url(base_url)
+                if package == "@opencode/ai/providers/anthropic"
+                else base_url
+            )
+        return {
+            provider: {
+                "name": provider,
+                "package": package,
+                "settings": settings,
+                "models": {model: {"name": model}},
+            }
+        }
+
+
+class Cwe78Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-78"
+    name = "cwe-78"
+
+
+class Cwe134Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-134"
+    name = "cwe-134"
+
+
+class Cwe190Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-190"
+    name = "cwe-190"
+
+
+class Cwe606Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-606"
+    name = "cwe-606"
+
+
+class Cwe415Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-415"
+    name = "cwe-415"
+
+
+class Cwe416Plugin(MarkdownCwePlugin):
+    cwe_id = "CWE-416"
+    name = "cwe-416"
+
+
+_CWE_PLUGINS: dict[str, type[MarkdownCwePlugin]] = {
+    cls.cwe_id: cls
+    for cls in (Cwe78Plugin, Cwe134Plugin, Cwe190Plugin, Cwe606Plugin, Cwe415Plugin, Cwe416Plugin)
+}
+
+
+def plugin_for_cwe(cwe_id: str, prompt_root: Path | None = None) -> MarkdownCwePlugin:
+    """构造首批 CWE 插件；一次运行只选择一种 CWE。"""
+    normalized = cwe_id.upper()
+    try:
+        return _CWE_PLUGINS[normalized](prompt_root)
+    except KeyError as exc:
+        raise ValueError(f"不支持的 CWE: {cwe_id}") from exc
+
+
+def supported_cwes() -> tuple[str, ...]:
+    return tuple(_CWE_PLUGINS)
+
+
+def write_runtime_config(
+    plugin: CwePlugin,
+    runtime: str,
+    target: Path,
+    source_root: Path,
+    output: Path,
+    **kwargs: object,
+) -> Path:
+    configs = plugin.mcp_config(target, source_root, **kwargs)
+    if runtime not in configs:
+        raise ValueError(f"插件没有为 {runtime} 提供 MCP 配置")
+    output.write_text(
+        json.dumps(configs[runtime], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return output

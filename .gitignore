@@ -1,1 +1,16 @@
 /tests
+ICSE_2027_taintsage.pdf
+binrex.pdf
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+config.toml
+
+# 运行时残留与用户提供的固件样本
+/.opencode
+/data/02_two_firmwares
+/rea-repo
+rea-main.tar.gz

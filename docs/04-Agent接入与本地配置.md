@@ -1,37 +1,88 @@
 # Agent 接入与本地配置
 
-状态：配置设计草案，暂不实现连接。
+状态：配置设计与 Agent adapter 原型。
 
-## 已确认方向
+## 接入方向
 
-使用自有 Agent 适配层，首期接入 Claude 相关底座，并支持 DeepSeek 模型。Agent 底座与模型提供方分开配置。
+Sagent 通过统一 `AgentRuntime` 接入 Claude Code 和 OpenCode。后续开发主用 OpenCode，Claude Code 用于辅助验证。CWE prompt 保存在 `prompts/<cwe>/`，Ghidra 反编译和导航使用外部 [GhidraMCP](https://github.com/LaurieWired/GhidraMCP)。
 
-“Claude 底座”的具体接入方式仍需确定。配置中选择 DeepSeek 不代表任意 Claude SDK 或运行时都能直接调用它，协议适配需要单独验证。
+## 配置文件
 
-## 配置草案
+不要把本地配置直接提交。复制根目录模板：
 
-用户在本地 `config.toml` 中设置底座、提供方、模型、地址和 API Key。下面的值用于说明字段，模型和地址尚未固定：
+```bash
+cp config.toml.example config.toml
+```
+
+`config.toml` 只保存 Agent 相关配置：
 
 ```toml
 [agent]
-runtime = "claude"
-
-[model]
+runtime = "opencode"
 provider = "deepseek"
-model = ""
-base_url = ""
-api_key = ""
-# 可改用环境变量；指定时优先读取该变量，缺失则报错。
-api_key_env = ""
+model = "deepseek-flash"
+api_key = "sk-替换为你的 DeepSeek API Key"
+base_url = "https://api.deepseek.com/v1"
+timeout = 3600
 ```
 
-支持直接配置 API Key，也支持环境变量引用。实际密钥不写入日志和报告；本地配置文件不提交，仓库只保留无密钥示例。
+API Key 直接写入本地 `config.toml`，不要提交该文件。DeepSeek 当前推荐模型名是 `deepseek-flash`；`deepseek-v4-flash` 是兼容旧名，不建议新配置继续使用。`base_url` 改成任意 OpenAI-compatible 服务地址即可使用本地模型。GhidraMCP 使用默认值；需要覆盖时使用环境变量：
 
-读取配置时校验必需字段。连接错误、鉴权失败和模型不可用分别报告，不能变成空分析结果。
+```bash
+export GHIDRA_INSTALL_DIR=/path/to/ghidra
+export GHIDRA_MCP_EXTENSION_JAR=/path/to/GhidraMCP.jar
+```
 
-## 下一次需要确认
+可选变量包括 `GHIDRA_MCP_MODE`、`GHIDRA_MCP_SERVER`、`GHIDRA_MCP_UVX`、`GHIDRA_MCP_PYTHON`、`GHIDRA_MCP_PACKAGE` 和 `GHIDRA_MCP_READY_TIMEOUT`（正整数秒）。它们属于部署环境设置，不写入项目配置模板。
 
-- Claude 底座的具体接入方式和调用协议。
-- DeepSeek 的目标模型、服务地址和工具调用兼容性。
+参数级路径后端是可选依赖。安装 angr 的 Python 环境后，设置：
 
-依赖检索不需要调用模型，可以先独立开发和验证。
+```bash
+export AGENT_PATH_BACKEND_PYTHON=/path/to/python
+```
+
+Sagent 会额外注入 `paths` MCP server，提供 `query_sink_paths`。后端当前返回 RDA 定义链，不等同于完整污点证明；source 可控性、别名和间接调用限制会保留在结果中。
+
+## 安装和验证
+
+```bash
+npm install -g --allow-scripts=@anthropic-ai/claude-code,@opencode/cli \
+  @anthropic-ai/claude-code @opencode/cli
+brew install ghidra
+claude --version
+claude doctor
+opencode --version
+java -version
+```
+
+GhidraMCP 扩展构建和 headless 验证步骤见根目录 [`部署与使用手册.md`](../部署与使用手册.md)。
+
+## Claude 接口兼容性
+
+Sagent 与 Claude 有两处接口，能力范围不同：
+
+1. **Agent 循环（默认路径）**：`runtime = "claude"` 时由本机 `claude` CLI 承担工具循环，
+   `config.agent_environment` 把 `agent.api_key` / `agent.base_url` 分别注入
+   `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。这条路径**要求本机安装 `@anthropic-ai/claude-code`**，
+   且只适合 Anthropic 兼容端点；OpenAI 兼容端点走 `runtime = "opencode"`。
+2. **无工具循环的直接调用**：`src/agent/llm_client.py` 用标准库直接请求
+   `{base_url}/v1/messages`（Anthropic Messages 协议），不依赖任何 CLI，端点与凭据只经
+   `SAGENT_LLM_*` 环境变量传入。它只覆盖「一轮消息 → 文本」，没有工具循环。
+
+当前 `runtime = "opencode"` + DeepSeek 是默认配置；要改用 Claude 端点需同时改 `runtime`、
+`provider`、`model`、`base_url`。直接调用客户端的设计、URL 规则、失败行为和验证方式见
+[docs/19](./19-Anthropic兼容客户端.md)；该客户端目前未接入分析流水线。
+
+## 运行
+
+```bash
+export ANTHROPIC_API_KEY="..."  # 使用 Claude 时设置对应变量
+opencode auth login               # 使用 OpenCode 时完成 provider 登录
+PYTHONPATH=src python3 -m agent.cli \
+  --config config.toml \
+  --target data/01_simple_demo/server \
+  --goal "检查是否存在外部输入到命令执行的路径" \
+  --dry-run
+```
+
+去掉 `--dry-run` 后由真实 Agent 执行。默认不执行样本。
