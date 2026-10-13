@@ -7,8 +7,8 @@ set -eu
 export GHIDRA_INSTALL_DIR=/opt/ghidra_12.0.4_PUBLIC
 export GHIDRA_MCP_COMMAND="/opt/sagent-venv/bin/ghidra-mcp"
 export GHIDRA_MCP_EXTENSION_JAR=/opt/sagent/GhidraMCP.jar
-# paths 后端需要 angr：基础镜像的 /usr/bin/python3 自带 angr 9.3.2
-export AGENT_PATH_BACKEND_PYTHON=/usr/bin/python3
+# paths 后端与 ghidra-mcp 共用同一 venv（angr 已装进该环境）
+export AGENT_PATH_BACKEND_PYTHON=/opt/sagent-venv/bin/python
 export PYTHONPATH=/opt/sagent/src
 
 cd /work
