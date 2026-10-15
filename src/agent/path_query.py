@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,23 @@ class PathQueryError(RuntimeError):
 class AngrPathBackend:
     """只做静态定义链查询，不把结果直接解释为漏洞。"""
 
+    def __init__(self, deadline_seconds: float = 60.0) -> None:
+        """deadline_seconds 是单次 RDA 分析的墙钟上限；超时降级为 limitation 而不是挂死。"""
+        self.deadline_seconds = deadline_seconds
+        self._cache: dict[tuple[str, int, int], tuple[Any, Any]] = {}
+
+    def _load(self, angr_module: Any, binary_path: Path) -> tuple[Any, Any]:
+        """按 (路径, mtime, 大小) 缓存 Project/CFG：同一进程内多调用点不再重复建图。"""
+        stat = binary_path.stat()
+        key = (str(binary_path), int(stat.st_mtime), stat.st_size)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        project = angr_module.Project(str(binary_path), auto_load_libs=False)
+        cfg = project.analyses.CFGFast(normalize=True)
+        self._cache[key] = (project, cfg)
+        return project, cfg
+
     def query(self, binary: str | Path, request: PathQuery) -> dict[str, Any]:
         try:
             import angr
@@ -37,8 +55,7 @@ class AngrPathBackend:
         if request.max_depth < 1 or request.max_nodes < 1:
             raise PathQueryError("max_depth 和 max_nodes 必须大于 0")
 
-        project = angr.Project(str(binary_path), auto_load_libs=False)
-        cfg = project.analyses.CFGFast(normalize=True)
+        project, cfg = self._load(angr, binary_path)
         sink = self._resolve_function(cfg, request.sink_function)
         if sink is None:
             return self._result("unsupported", reason="找不到 sink 函数")
@@ -65,6 +82,7 @@ class AngrPathBackend:
                     request.sink_argument,
                     request.max_depth,
                     request.max_nodes,
+                    self.deadline_seconds,
                 )
                 paths.extend(result[0])
                 limitations.update(result[1])
@@ -105,6 +123,34 @@ class AngrPathBackend:
         return None
 
     @staticmethod
+    def _run_with_deadline(
+        call: Callable[[], Any],
+        seconds: float,
+        label: str,
+    ) -> tuple[Any, str | None]:
+        """在守护线程里执行不可中断的分析，最多等待 seconds 秒。
+
+        angr 的 RDA 不接受迭代/时间预算参数，因此用线程 + join 超时兜底：
+        超时后线程可能仍在后台运行，但调用方不再被拖住，并如实记录限制。
+        """
+        box: dict[str, Any] = {}
+
+        def _target() -> None:
+            try:
+                box["value"] = call()
+            except BaseException as exc:  # noqa: BLE001 - 线程内异常必须交回调用方
+                box["error"] = exc
+
+        thread = threading.Thread(target=_target, daemon=True, name=label)
+        thread.start()
+        thread.join(seconds)
+        if thread.is_alive():
+            return None, f"{label} 超过 {seconds:.0f}s 预算，已降级"
+        if "error" in box:
+            raise box["error"]
+        return box.get("value"), None
+
+    @staticmethod
     def _query_callsite(
         project: Any,
         caller: Any,
@@ -112,6 +158,7 @@ class AngrPathBackend:
         argument: int,
         max_depth: int,
         max_nodes: int,
+        deadline_seconds: float,
     ) -> tuple[list[dict[str, Any]], set[str]]:
         if project.arch.name != "AMD64":
             return [], {f"暂不支持 {project.arch.name} 的 ABI 参数定位"}
@@ -122,12 +169,18 @@ class AngrPathBackend:
 
         register_names = ("rdi", "rsi", "rdx", "rcx", "r8", "r9")
         offset, size = project.arch.registers[register_names[argument]]
-        rda = project.analyses.ReachingDefinitions(
-            subject=caller,
-            observe_all=True,
-            track_tmps=True,
-            dep_graph=True,
+        rda, timeout_note = AngrPathBackend._run_with_deadline(
+            lambda: project.analyses.ReachingDefinitions(
+                subject=caller,
+                observe_all=True,
+                track_tmps=True,
+                dep_graph=True,
+            ),
+            deadline_seconds,
+            "RDA 定义链分析",
         )
+        if rda is None:
+            return [], {timeout_note or "RDA 定义链分析超时"}
         before = [
             value
             for key, value in rda.observed_results.items()

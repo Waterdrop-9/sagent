@@ -474,7 +474,9 @@ def materialize_chains(
                     continue
                 hops = [{
                     "from": cfg.functions.get(frm, hex(frm)),
+                    "fromAddress": hex(frm),
                     "to": cfg.functions.get(to, hex(to)),
+                    "toAddress": hex(to),
                     "binary": root_name,
                     "kind": "callgraph",
                 } for frm, to in edges]
@@ -497,18 +499,35 @@ def materialize_chains(
     for name, symbols in dyn.items():
         if name == root_name:
             continue
-        exported = set(symbols["defined"]) & root_imports
+        exported = {
+            name: symbols["defined"][name]
+            for name in sorted(set(symbols["defined"]) & root_imports)
+        }
         component_sinks = enumerate_sink_sites(binary_id_of(name), name, symbols["imported"], cwe)
         if not exported or not component_sinks:
             continue
         entries = [s for s in root_sources if s["kind"] == "entry"]
         if not entries:
             continue
-        for export_name in sorted(exported)[:4]:
+        for export_name, export_address in list(exported.items())[:4]:
             for site in component_sinks:
                 hops = [
-                    {"from": entries[0]["name"], "to": export_name, "binary": root_name, "kind": "plt_link"},
-                    {"from": export_name, "to": site["symbol"], "binary": name, "kind": "export"},
+                    {
+                        "from": entries[0]["name"],
+                        "fromAddress": entries[0].get("address"),
+                        "to": export_name,
+                        "toAddress": hex(export_address),
+                        "binary": root_name,
+                        "kind": "plt_link",
+                    },
+                    {
+                        "from": export_name,
+                        "fromAddress": hex(export_address),
+                        "to": site["symbol"],
+                        "toAddress": site.get("address"),
+                        "binary": name,
+                        "kind": "export",
+                    },
                 ]
                 chains.append(_chain(site, list(entries), hops, "plt_link"))
     return chains
@@ -700,8 +719,21 @@ def _sink_key(chain: dict[str, Any]) -> tuple[str, str, str]:
     return (sink["binaryID"], sink["symbol"], sink.get("callerAddress") or sink.get("address") or "")
 
 
-def _hop_key(chain: dict[str, Any]) -> tuple[tuple[str, str, str], ...]:
-    return tuple((h["from"], h["to"], h["kind"]) for h in chain["hops"])
+def _hop_key(chain: dict[str, Any]) -> tuple[tuple[str, str, str, str, str], ...]:
+    """hop 身份包含调用点地址：同名函数的不同调用点/递归层级不可被去重合并。
+
+    旧链（无 fromAddress/toAddress）回退到函数名，保持与历史产物可比。
+    """
+    return tuple(
+        (
+            h["from"],
+            h.get("fromAddress") or h["from"],
+            h["to"],
+            h.get("toAddress") or h["to"],
+            h["kind"],
+        )
+        for h in chain["hops"]
+    )
 
 
 def _source_key(chain: dict[str, Any]) -> frozenset[tuple[str, str, str]]:
