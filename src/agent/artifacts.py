@@ -200,16 +200,40 @@ class ArtifactStore:
             if report_path.stat().st_size > MAX_REPORT_BYTES * 2:
                 raise ValueError("恢复报告超过大小预算")
             report = parse_report(report_path.read_text())
-            value = {"analysisStatus": report.get("analysisStatus"),
-                     "unresolved": report["unresolved"][:16],
-                     "blockers": report.get("coverageLedger", {}).get("finishCheck", {}).get("blockers", [])[:16],
-                     "findings": report["findings"][:16],
-                     "functionModels": report["coverage"].get("functionModels", [])[:16]}
+            fields = {
+                "unresolved": report["unresolved"],
+                "blockers": report.get("coverageLedger", {}).get("finishCheck", {}).get("blockers", []),
+                "findings": report["findings"],
+                "functionModels": report["coverage"].get("functionModels", []),
+            }
+            shown, truncated = _summarize_fields(fields)
+            value = {"analysisStatus": report.get("analysisStatus"), **shown}
+            if truncated:
+                # 截断必须显式：静默丢弃会让"未展示"与"不存在"无法区分。
+                value["truncatedFields"] = truncated
+                value["note"] = "以上字段已按恢复摘要预算截断，未展示项需读取原目录"
         text = json.dumps(value, ensure_ascii=False)
         if len(text.encode()) > MAX_CONTEXT_BYTES:
             text = json.dumps({"resumeDirectory": str(self.directory),
                                "reason": "恢复摘要超过 32 KiB，按需读取原目录；未展示项仍待处理"}, ensure_ascii=False)
         return text
+
+
+_RESUME_ITEM_LIMIT = 16
+
+
+def _summarize_fields(
+    fields: dict[str, list[Any]],
+    limit: int = _RESUME_ITEM_LIMIT,
+) -> tuple[dict[str, list[Any]], dict[str, dict[str, int]]]:
+    """恢复摘要的列表字段：截断必须显式，避免"未展示"被当成"不存在"。"""
+    shown = {key: list(items)[:limit] for key, items in fields.items()}
+    truncated = {
+        key: {"total": len(items), "shown": len(shown[key])}
+        for key, items in fields.items()
+        if len(items) > limit
+    }
+    return shown, truncated
 
 
 def _path_payload(result: dict[str, Any]) -> dict[str, Any]:

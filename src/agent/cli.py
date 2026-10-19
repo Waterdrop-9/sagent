@@ -169,18 +169,34 @@ def _run_phase_m(context: AnalysisGroupContext, cwe: str, directory: Path) -> di
         return None
 
 
+def _chains_summary_payload(chains: list[dict[str, Any]], budget: int) -> tuple[str, int]:
+    """按**字节**预算挑选候选链，返回 (合法 JSON 文本, 被省略的链数)。
+
+    逐条回退而不是切割序列化文本：非 ASCII 字符按字节预算是字符数的数倍，
+    直接切片会同时造成"实际超预算"与"JSON 被截断后无法解析"两个问题。
+    """
+    kept = list(chains)
+    while kept:
+        text = json.dumps({"candidateChains": kept}, ensure_ascii=False)
+        if len(text.encode("utf-8")) <= budget:
+            return text, len(chains) - len(kept)
+        kept.pop()
+    return json.dumps({"candidateChains": []}, ensure_ascii=False), len(chains)
+
+
 def _chains_summary_appendix(doc: dict[str, Any]) -> str:
-    """把阶段 M 候选链注入 user prompt；超过预算截断，截断后的链不可判 confirmed。"""
-    text = json.dumps({"candidateChains": doc.get("chains", [])}, ensure_ascii=False)
-    truncated = False
-    if len(text.encode()) > _CHAINS_SUMMARY_BUDGET:
-        truncated = True
-        text = text[:_CHAINS_SUMMARY_BUDGET]
+    """把阶段 M 候选链注入 user prompt；按字节预算截断，截断后的链不可判 confirmed。"""
+    text, omitted = _chains_summary_payload(doc.get("chains", []), _CHAINS_SUMMARY_BUDGET)
+    note = (
+        f"\n（已按字节预算省略 {omitted} 条链：未列出的链不可判 confirmed，证据不足记 unresolved）"
+        if omitted
+        else ""
+    )
     return (
         "\n\n## 候选链摘要（阶段 M 机械物化，供逐链判定）\n"
         "以下每条链都必须按 per-chain-judgment.md 的协议逐一判定；"
         "机械来源（callgraph/import_table/plt_link）不可直接当作确认依据。\n"
-        "```json\n" + text + ("\n（已截断：未列出的链不可判 confirmed，证据不足记 unresolved）" if truncated else "") + "\n```"
+        "```json\n" + text + note + "\n```"
     )
 
 
